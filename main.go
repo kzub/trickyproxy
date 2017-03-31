@@ -46,6 +46,9 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 	donors := endpoint.Instances{}
 
 	for _, val := range donorsList {
+		if len(val) == 0 {
+			continue
+		}
 		data := strings.Split(val, ":")
 		host := data[0]
 		port := data[1]
