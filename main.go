@@ -26,7 +26,7 @@ func main() {
 
 	donorsConfig := readConfig(*dnrfile)
 	targetConfig := readConfig(*trgfile)
-	serverConfig := readConfig(*srvfile)
+	serverConfig := cleanString(readConfig(*srvfile))
 
 	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
 	target := setupTarget(targetConfig)
@@ -38,8 +38,8 @@ func readConfig(filename string) string {
 	if err != nil {
 		panic("CANNOT READ CONFIG FILE:" + filename)
 	}
-	n := len(data)
-	return string(data[:n])
+
+	return string(data[:])
 }
 
 func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
@@ -52,7 +52,7 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 		}
 		data := strings.Split(val, ":")
 		host := data[0]
-		port := data[1]
+		port := cleanString(data[1])
 		fmt.Println("adding donor upstream", host, port)
 		donors.Add(endpoint.NewTLS(host, port, keyfile, crtfile).MakeReadOnly())
 	}
@@ -62,10 +62,16 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 func setupTarget(targetConfig string) *endpoint.Instance {
 	data := strings.Split(targetConfig, ":")
 	host := data[0]
-	port := data[1]
+	port := cleanString(data[1])
 	fmt.Println("adding target upstream", host, port)
 	target := endpoint.New(host, port, "http")
 	return target
+}
+
+func cleanString(str string) string {
+	str = strings.TrimRight(str, "\n")
+	str = strings.TrimRight(str, "\r")
+	return str
 }
 
 func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w http.ResponseWriter, r *http.Request) {
@@ -80,9 +86,10 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w h
 
 func setupServer(donors *endpoint.Instances, target *endpoint.Instance, serverAddr string) {
 	http.HandleFunc("/", makeHandler(donors, target))
-	fmt.Println("Ready on " + serverAddr)
+	fmt.Println("Ready on [" + serverAddr + "]")
 	err := http.ListenAndServe(serverAddr, nil)
 	if err != nil {
+		fmt.Println("ERROR:", err)
 		panic("CANNOT SETUP SERVER AT " + serverAddr)
 	}
 }
