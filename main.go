@@ -21,15 +21,16 @@ func main() {
 	crtfile := flag.String("cert", "certs/service.pem", "service public cert")
 	dnrfile := flag.String("donors", "donors.conf", "donors hosts list")
 	trgfile := flag.String("target", "target.conf", "target host address")
+	srvfile := flag.String("srvaddr", "srvaddr.conf", "server host & port to listen")
 	flag.Parse()
 
 	donorsConfig := readConfig(*dnrfile)
 	targetConfig := readConfig(*trgfile)
+	serverConfig := readConfig(*srvfile)
 
 	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
 	target := setupTarget(targetConfig)
-	setupServer(donors, target)
-	fmt.Println("Ready")
+	setupServer(donors, target, serverConfig)
 }
 
 func readConfig(filename string) string {
@@ -77,9 +78,13 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w h
 	}
 }
 
-func setupServer(donors *endpoint.Instances, target *endpoint.Instance) {
+func setupServer(donors *endpoint.Instances, target *endpoint.Instance, serverAddr string) {
 	http.HandleFunc("/", makeHandler(donors, target))
-	http.ListenAndServe(":8080", nil)
+	fmt.Println("Ready on " + serverAddr)
+	err := http.ListenAndServe(serverAddr, nil)
+	if err != nil {
+		panic("CANNOT SETUP SERVER AT " + serverAddr)
+	}
 }
 
 func endWithStatusCode(code int, msg string, w http.ResponseWriter) {
