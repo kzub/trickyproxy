@@ -3,11 +3,13 @@ package endpoint
 import (
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // Instance connection client
@@ -73,23 +75,12 @@ func (inst *Instance) Get(path string) (resp *http.Response, err error) {
 	return inst.client.Do(rq)
 }
 
-// Head load data from path
-// func (inst *Instance) Head(path string) (resp *http.Response, err error) {
-// 	rq := inst.getRequest("HEAD", path)
-// 	return inst.client.Do(rq)
-// }
-
-// Put something
-func (inst *Instance) Put(path string, headers http.Header, body []byte) (resp *http.Response, err error) {
-	rq := inst.getRequest("PUT", path)
-	rq.Header = headers
-	rq.ContentLength = int64(len(body))
-	rq.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-	return inst.client.Do(rq)
-}
-
 // Post something
 func (inst *Instance) Post(path string, headers http.Header, body []byte) (resp *http.Response, err error) {
+	if inst.readonly {
+		fmt.Println("CANNOT WRITE TO READONLY ENDPOINT", path)
+		return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
+	}
 	rq := inst.getRequest("POST", path)
 	rq.Header = headers
 	rq.ContentLength = int64(len(body))
@@ -99,6 +90,13 @@ func (inst *Instance) Post(path string, headers http.Header, body []byte) (resp 
 
 // Do something
 func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err error) {
+	if inst.readonly {
+		if strings.ToUpper(originalRq.Method) == "POST" || strings.ToUpper(originalRq.Method) == "PUT" ||
+			strings.ToUpper(originalRq.Method) == "PATCH" {
+			fmt.Println("CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.Host+originalRq.URL.Path)
+			return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
+		}
+	}
 	rq := inst.getRequest(originalRq.Method, originalRq.URL.Path)
 	rq.Header = originalRq.Header
 	rq.Body = originalRq.Body

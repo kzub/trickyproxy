@@ -2,9 +2,9 @@ package main
 
 import (
 	"./endpoint"
+	"flag"
 	"fmt"
 	"io/ioutil"
-	// "log"
 	"net/http"
 	"strings"
 )
@@ -17,20 +17,32 @@ const (
 )
 
 func main() {
-	fmt.Println("OK")
+	keyfile := flag.String("key", "certs/service.key", "service private key")
+	crtfile := flag.String("cert", "certs/service.pem", "service public cert")
+	dnrfile := flag.String("donors", "donors.conf", "donors hosts list")
+	trgfile := flag.String("target", "target.conf", "target host address")
+	flag.Parse()
 
-	keyfile := "certs/service_proxy.key"
-	crtfile := "certs/service_proxy.pem"
-	donorsConfig := ""
-	targetConfig := "localhost:8098"
+	donorsConfig := readConfig(*dnrfile)
+	targetConfig := readConfig(*trgfile)
 
-	donors := setupDonors(donorsConfig, keyfile, crtfile)
+	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
 	target := setupTarget(targetConfig)
 	setupServer(donors, target)
+	fmt.Println("Ready")
+}
+
+func readConfig(filename string) string {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		panic("CANNOT READ CONFIG FILE:" + filename)
+	}
+	n := len(data)
+	return string(data[:n])
 }
 
 func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
-	donorsList := strings.Split(donorsConfig, ",")
+	donorsList := strings.Split(donorsConfig, "\n")
 	donors := endpoint.Instances{}
 
 	for _, val := range donorsList {
