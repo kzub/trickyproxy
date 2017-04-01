@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Instance connection client
@@ -32,7 +33,9 @@ func New(host, port, protocol string) *Instance {
 		protocol: protocol,
 		host:     host,
 		port:     port,
-		client:   &http.Client{},
+		client: &http.Client{
+			Timeout: time.Second * 20,
+		},
 	}
 }
 
@@ -47,7 +50,7 @@ func NewTLS(host, port, keyfile, crtfile string) *Instance {
 		InsecureSkipVerify: true,
 	}
 	Instance := New(host, port, "https")
-	Instance.client.Transport = &http.Transport{TLSClientConfig: config}
+	Instance.client.Transport = &http.Transport{TLSClientConfig: config, DisableCompression: true}
 	return Instance
 }
 
