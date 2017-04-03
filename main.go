@@ -1,9 +1,9 @@
 package main
 
 import (
-	"./endpoint"
 	"flag"
 	"fmt"
+	"github.com/kzub/trickyproxy/endpoint"
 	"io/ioutil"
 	"net/http"
 	"strings"
