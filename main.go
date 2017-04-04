@@ -117,7 +117,7 @@ func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []
 	resp.Body.Close()
 	if err != nil {
 		fmt.Printf("Failed to read response body\nERR: %s\n", err)
-		endWithStatusCode(500, "ERROR_READ_RESPONSE_1", w)
+		endWithStatusCode(500, "TRPROXY_ERROR_READ_RESPONSE_1", w)
 		return
 	}
 	w.Write(body)
@@ -130,7 +130,7 @@ func tryReadTargetAndAnswer(target *endpoint.Instance, w http.ResponseWriter, r 
 	tResp, err := target.Do(r)
 	if err != nil {
 		fmt.Printf("Failed to proxy\nURL: %s\nERR:%s\n", path, err)
-		endWithStatusCode(500, "ERROR_TARGET_PROXY_1", w)
+		endWithStatusCode(500, "TRPROXY_ERROR_TARGET_METHOD_1", w)
 		return tryComplete
 	}
 	fmt.Println("tryTarget status:", tResp.StatusCode)
@@ -153,7 +153,7 @@ func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.Resp
 	dResp, err := donor.Do(r)
 	if err != nil {
 		fmt.Printf("Failed to GET\nURL: %s\nERR:%s\n", path, err)
-		endWithStatusCode(500, "ERROR_DONOR_GET_1", w)
+		endWithStatusCode(500, "TRPROXY_ERROR_DONOR_GET_1", w)
 		return
 	}
 
@@ -161,7 +161,7 @@ func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.Resp
 	dResp.Body.Close()
 	if err != nil {
 		fmt.Printf("Failed to read response body\nURL: %s\nERR: %s\n", path, err)
-		endWithStatusCode(500, "ERROR_DONOR_GET_2", w)
+		endWithStatusCode(500, "TRPROXY_ERROR_DONOR_GET_2", w)
 		return
 	}
 
@@ -170,7 +170,7 @@ func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.Resp
 		tResp, err := target.Post(path, dResp.Header, body)
 		if err != nil {
 			fmt.Printf("Failed to POST\nURL: %s\nERR:%s\n", path, err)
-			endWithStatusCode(500, "ERROR_TARGET_POST_1", w)
+			endWithStatusCode(500, "TRPROXY_ERROR_TARGET_POST_1", w)
 			return
 		}
 		fmt.Println("POST status:", tResp.Status)
