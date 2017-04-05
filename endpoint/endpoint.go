@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -34,7 +35,18 @@ func New(host, port, protocol string) *Instance {
 		host:     host,
 		port:     port,
 		client: &http.Client{
-			Timeout: time.Second * 20,
+			Timeout: time.Second * 60,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+					DualStack: true,
+				}).DialContext,
+				MaxIdleConns:          1000,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 10 * time.Second,
+			},
 		},
 	}
 }
@@ -50,7 +62,19 @@ func NewTLS(host, port, keyfile, crtfile string) *Instance {
 		InsecureSkipVerify: true,
 	}
 	Instance := New(host, port, "https")
-	Instance.client.Transport = &http.Transport{TLSClientConfig: config, DisableCompression: true}
+	Instance.client.Transport = &http.Transport{
+		TLSClientConfig:    config,
+		DisableCompression: true,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:          1000,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 10 * time.Second,
+	}
 	return Instance
 }
 
