@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -36,17 +35,6 @@ func New(host, port, protocol string) *Instance {
 		port:     port,
 		client: &http.Client{
 			Timeout: time.Second * 60,
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-					DualStack: false,
-				}).DialContext,
-				MaxIdleConns:          10,
-				IdleConnTimeout:       30 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 10 * time.Second,
-			},
 		},
 	}
 }
@@ -55,7 +43,7 @@ func New(host, port, protocol string) *Instance {
 func NewTLS(host, port, keyfile, crtfile string) *Instance {
 	cert, err := tls.LoadX509KeyPair(crtfile, keyfile)
 	if err != nil {
-		log.Fatal("Cannot load key/cert", err)
+		log.Fatal("ERR: Cannot load key/cert", err)
 	}
 	config := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
@@ -65,15 +53,6 @@ func NewTLS(host, port, keyfile, crtfile string) *Instance {
 	Instance.client.Transport = &http.Transport{
 		TLSClientConfig:    config,
 		DisableCompression: true,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: false,
-		}).DialContext,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 10 * time.Second,
 	}
 	return Instance
 }
@@ -105,7 +84,7 @@ func (inst *Instance) Get(path string) (resp *http.Response, err error) {
 // Post something
 func (inst *Instance) Post(path string, headers http.Header, body []byte) (resp *http.Response, err error) {
 	if inst.readonly {
-		fmt.Println("CANNOT WRITE TO READONLY ENDPOINT", path)
+		fmt.Println("ERR: CANNOT WRITE TO READONLY ENDPOINT", path)
 		return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
 	}
 	rq := inst.getRequest("POST", path)
@@ -120,7 +99,7 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	if inst.readonly {
 		if strings.ToUpper(originalRq.Method) == "POST" || strings.ToUpper(originalRq.Method) == "PUT" ||
 			strings.ToUpper(originalRq.Method) == "PATCH" {
-			fmt.Println("CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.Host+originalRq.URL.Path)
+			fmt.Println("ERR: CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.Host+originalRq.URL.Path)
 			return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
 		}
 	}
@@ -128,7 +107,20 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	rq.Header = originalRq.Header
 	rq.Body = originalRq.Body
 	rq.ContentLength = originalRq.ContentLength
-	return inst.client.Do(rq)
+
+	res, err := inst.client.Do(rq)
+	counter := 50
+	for err != nil {
+		fmt.Println(">>> retry left:", counter, originalRq.URL.Path)
+		time.Sleep(100 * time.Millisecond)
+		res, err = inst.client.Do(rq)
+		counter--
+		if counter == 0 {
+			break
+		}
+	}
+
+	return res, err
 }
 
 // Instances holds serveral endpoints

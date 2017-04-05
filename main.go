@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -36,7 +37,7 @@ func main() {
 func readConfig(filename string) string {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
-		panic("CANNOT READ CONFIG FILE:" + filename)
+		panic("ERR: CANNOT READ CONFIG FILE:" + filename)
 	}
 
 	return string(data[:])
@@ -74,15 +75,18 @@ func cleanString(str string) string {
 	return str
 }
 
+func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request) {
+	if tryReadTargetAndAnswer(target, w, r) == tryComplete {
+		// fmt.Println("---] no fetch from donor", r.URL.Path)
+		return
+	}
+	fmt.Println("---> fetch donor:", r.URL.Path)
+	readDonorWriteTargetAndAnswer(donor, target, w, r)
+}
+
 func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		go func() {
-			if tryReadTargetAndAnswer(target, w, r) == tryComplete {
-				return
-			}
-			fmt.Println("---> fetch data from donor")
-			readDonorWriteTargetAndAnswer(donors.Random(), target, w, r)
-		}()
+		serveRequest(donors.Random(), target, w, r)
 	}
 }
 
@@ -91,7 +95,7 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, serverAd
 	fmt.Println("Ready on [" + serverAddr + "]")
 	err := http.ListenAndServe(serverAddr, nil)
 	if err != nil {
-		fmt.Println("ERROR:", err)
+		fmt.Println("ERR:", err)
 		panic("CANNOT SETUP SERVER AT " + serverAddr)
 	}
 }
@@ -102,7 +106,7 @@ func endWithStatusCode(code int, msg string, w http.ResponseWriter) {
 }
 
 func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
-	defer fmt.Printf("resp: %s\n", resp.Status)
+	defer fmt.Println("resp:", resp.StatusCode, resp.Request.URL.Path)
 
 	headers := w.Header()
 	for k, v := range resp.Header {
@@ -118,7 +122,7 @@ func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		fmt.Printf("Failed to read response body\nERR: %s\n", err)
+		fmt.Printf("ERR: Failed to read response body: %s\n", err)
 		endWithStatusCode(500, "TRPROXY_ERROR_READ_RESPONSE_1", w)
 		return
 	}
@@ -128,22 +132,19 @@ func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []
 }
 
 func tryReadTargetAndAnswer(target *endpoint.Instance, w http.ResponseWriter, r *http.Request) tryResult {
-	path := r.URL.Path
-
 	// read target
 	tResp, err := target.Do(r)
 	if err != nil {
-		fmt.Printf("Failed to proxy\nURL: %s\nERR:%s\n", path, err)
+		fmt.Printf("ERR: Failed to proxy: %s\n%s\n", r.URL.Path, err)
 		endWithStatusCode(500, "TRPROXY_ERROR_TARGET_METHOD_1", w)
 		return tryComplete
 	}
-	fmt.Println("tryTarget status:", tResp.StatusCode)
-
 	if tResp.StatusCode == http.StatusNotFound {
 		if r.Method == "GET" || r.Method == "HEAD" {
 			return tryDonor
 		}
 	}
+	fmt.Println("tryTarget:", tResp.StatusCode, r.URL.Path)
 
 	// answer to client
 	endWithHTTPResponse(w, tResp, nil)
@@ -155,8 +156,8 @@ func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.Resp
 
 	// read from donor
 	dResp, err := donor.Do(r)
-	if err != nil {
-		fmt.Printf("Failed to GET\nURL: %s\nERR:%s\n", path, err)
+	if err != nil && err != io.EOF {
+		fmt.Printf("ERR: Failed to donor GET path: %s\n(%s)\n", path, err)
 		endWithStatusCode(500, "TRPROXY_ERROR_DONOR_GET_1", w)
 		return
 	}
@@ -164,7 +165,7 @@ func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.Resp
 	body, err := ioutil.ReadAll(dResp.Body)
 	dResp.Body.Close()
 	if err != nil {
-		fmt.Printf("Failed to read response body\nURL: %s\nERR: %s\n", path, err)
+		fmt.Printf("ERR: Failed to read response body: %s\n%s\n", path, err)
 		endWithStatusCode(500, "TRPROXY_ERROR_DONOR_GET_2", w)
 		return
 	}
@@ -173,7 +174,7 @@ func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.Resp
 	if dResp.StatusCode == http.StatusOK {
 		tResp, err := target.Post(path, dResp.Header, body)
 		if err != nil {
-			fmt.Printf("Failed to POST\nURL: %s\nERR:%s\n", path, err)
+			fmt.Printf("ERR: Failed to POST: %s\n%s\n", path, err)
 			endWithStatusCode(500, "TRPROXY_ERROR_TARGET_POST_1", w)
 			return
 		}
