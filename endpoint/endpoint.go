@@ -40,10 +40,10 @@ func New(host, port, protocol string) *Instance {
 				DialContext: (&net.Dialer{
 					Timeout:   30 * time.Second,
 					KeepAlive: 30 * time.Second,
-					DualStack: true,
+					DualStack: false,
 				}).DialContext,
-				MaxIdleConns:          1000,
-				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConns:          10,
+				IdleConnTimeout:       30 * time.Second,
 				TLSHandshakeTimeout:   10 * time.Second,
 				ExpectContinueTimeout: 10 * time.Second,
 			},
@@ -68,10 +68,10 @@ func NewTLS(host, port, keyfile, crtfile string) *Instance {
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-			DualStack: true,
+			DualStack: false,
 		}).DialContext,
-		MaxIdleConns:          1000,
-		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          10,
+		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 10 * time.Second,
 	}

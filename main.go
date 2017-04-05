@@ -76,11 +76,13 @@ func cleanString(str string) string {
 
 func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if tryReadTargetAndAnswer(target, w, r) == tryComplete {
-			return
-		}
-		fmt.Println("---> fetch data from donor")
-		readDonorWriteTargetAndAnswer(donors.Random(), target, w, r)
+		go func() {
+			if tryReadTargetAndAnswer(target, w, r) == tryComplete {
+				return
+			}
+			fmt.Println("---> fetch data from donor")
+			readDonorWriteTargetAndAnswer(donors.Random(), target, w, r)
+		}()
 	}
 }
 
@@ -106,9 +108,9 @@ func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []
 	for k, v := range resp.Header {
 		headers[k] = v
 	}
-	w.WriteHeader(resp.StatusCode)
 
 	if respBody != nil {
+		w.WriteHeader(resp.StatusCode)
 		w.Write(respBody)
 		return
 	}
@@ -120,6 +122,8 @@ func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []
 		endWithStatusCode(500, "TRPROXY_ERROR_READ_RESPONSE_1", w)
 		return
 	}
+
+	w.WriteHeader(resp.StatusCode)
 	w.Write(body)
 }
 
