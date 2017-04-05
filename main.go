@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -24,6 +25,11 @@ func main() {
 	trgfile := flag.String("target", "target.conf", "target host address")
 	srvfile := flag.String("srvaddr", "srvaddr.conf", "server host & port to listen")
 	flag.Parse()
+
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println("version 1.5")
+		return
+	}
 
 	donorsConfig := readConfig(*dnrfile)
 	targetConfig := readConfig(*trgfile)
