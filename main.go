@@ -14,6 +14,7 @@ import (
 type tryResult int
 
 const (
+	version     string    = "1.6"
 	tryComplete tryResult = iota
 	tryDonor    tryResult = iota
 )
@@ -27,7 +28,7 @@ func main() {
 	flag.Parse()
 
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("version 1.5")
+		fmt.Println("version " + version)
 		return
 	}
 
@@ -145,8 +146,12 @@ func tryReadTargetAndAnswer(target *endpoint.Instance, w http.ResponseWriter, r 
 		endWithStatusCode(500, "TRPROXY_ERROR_TARGET_METHOD_1", w)
 		return tryComplete
 	}
+
 	if tResp.StatusCode == http.StatusNotFound {
 		if r.Method == "GET" || r.Method == "HEAD" {
+			// You should ensure that you read until the response is complete before calling Close().
+			io.Copy(ioutil.Discard, tResp.Body)
+			tResp.Body.Close()
 			return tryDonor
 		}
 	}
