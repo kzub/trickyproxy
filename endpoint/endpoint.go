@@ -22,7 +22,7 @@ type Instance struct {
 	client   *http.Client
 }
 
-// New make new enfpoint
+// New make new endpoint
 func New(host, port, protocol string) *Instance {
 	if protocol != "http" && protocol != "https" {
 		log.Fatal("bad protocol", protocol)
