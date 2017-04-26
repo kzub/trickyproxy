@@ -11,12 +11,13 @@ import (
 	"strings"
 )
 
-type tryResult int
+type resultStatus int
 
 const (
-	version     string    = "1.6"
-	tryComplete tryResult = iota
-	tryDonor    tryResult = iota
+	version  string       = "1.7"
+	success  resultStatus = iota
+	fail     resultStatus = iota
+	notFound resultStatus = iota
 )
 
 func main() {
@@ -25,11 +26,16 @@ func main() {
 	dnrfile := flag.String("donors", "donors.conf", "donors hosts list")
 	trgfile := flag.String("target", "target.conf", "target host address")
 	srvfile := flag.String("srvaddr", "srvaddr.conf", "server host & port to listen")
+	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
 	flag.Parse()
 
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println("version " + version)
 		return
+	}
+
+	if *proxmod == "riak" {
+		setRiakProxyMode()
 	}
 
 	donorsConfig := readConfig(*dnrfile)
@@ -82,15 +88,6 @@ func cleanString(str string) string {
 	return str
 }
 
-func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request) {
-	if tryReadTargetAndAnswer(target, w, r) == tryComplete {
-		// fmt.Println("---] no fetch from donor", r.URL.Path)
-		return
-	}
-	fmt.Println("---> fetch donor:", r.URL.Path)
-	readDonorWriteTargetAndAnswer(donor, target, w, r)
-}
-
 func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		serveRequest(donors.Random(), target, w, r)
@@ -107,91 +104,71 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, serverAd
 	}
 }
 
-func endWithStatusCode(code int, msg string, w http.ResponseWriter) {
+func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request) {
+	resp, body, err := clientDoRequest(target, r)
+	if err != nil {
+		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err)
+		return
+	}
+
+	if !isNeedProxyPass(resp, r, body) {
+		writeResponse(w, resp, body)
+		return
+	}
+
+	fmt.Println("FETCH donor:", r.URL.Path)
+	resp, body, err = clientDoRequest(donor, r)
+	if err != nil {
+		writeErrorResponse("DONOR_DO "+r.Method, r, w, err)
+		return
+	}
+
+	storeResult, err := postProcess(donor, target, resp, r, body)
+	if err != nil {
+		writeErrorResponse("POST_PROCESS", r, w, err)
+		return
+	}
+
+	if storeResult {
+		err = storeResponse(target, r.URL.Path, resp.Header, body)
+		if err != nil {
+			writeErrorResponse("TARGET_STORE", r, w, err)
+			return
+		}
+	}
+
+	writeResponse(w, resp, body)
+}
+
+func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
+	fmt.Printf("ERR: %s (%s)\n%s\n", msg, r.URL.Path, err)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }
 
-func endWithHTTPResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
-	defer fmt.Println("resp:", resp.StatusCode, resp.Request.URL.Path)
+func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
+	defer fmt.Println("CLI resp:", resp.StatusCode, resp.Request.URL.Path)
 
 	headers := w.Header()
 	for k, v := range resp.Header {
 		headers[k] = v
 	}
 
-	if respBody != nil {
-		w.WriteHeader(resp.StatusCode)
-		w.Write(respBody)
-		return
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		fmt.Printf("ERR: Failed to read response body: %s\n", err)
-		endWithStatusCode(500, "TRPROXY_ERROR_READ_RESPONSE_1", w)
-		return
-	}
-
 	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	w.Write(respBody)
 }
 
-func tryReadTargetAndAnswer(target *endpoint.Instance, w http.ResponseWriter, r *http.Request) tryResult {
-	// read target
-	tResp, err := target.Do(r)
-	if err != nil {
-		fmt.Printf("ERR: Failed to proxy: %s\n%s\n", r.URL.Path, err)
-		endWithStatusCode(500, "TRPROXY_ERROR_TARGET_METHOD_1", w)
-		return tryComplete
-	}
-
-	if tResp.StatusCode == http.StatusNotFound {
-		if r.Method == "GET" || r.Method == "HEAD" {
-			// You should ensure that you read until the response is complete before calling Close().
-			io.Copy(ioutil.Discard, tResp.Body)
-			tResp.Body.Close()
-			return tryDonor
-		}
-	}
-	fmt.Println("tryTarget:", tResp.StatusCode, r.URL.Path)
-
-	// answer to client
-	endWithHTTPResponse(w, tResp, nil)
-	return tryComplete
-}
-
-func readDonorWriteTargetAndAnswer(donor, target *endpoint.Instance, w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	// read from donor
-	dResp, err := donor.Do(r)
+func clientDoRequest(client *endpoint.Instance, r *http.Request) (resp *http.Response, body []byte, err error) {
+	resp, err = client.Do(r)
 	if err != nil && err != io.EOF {
-		fmt.Printf("ERR: Failed to donor GET path: %s\n(%s)\n", path, err)
-		endWithStatusCode(500, "TRPROXY_ERROR_DONOR_GET_1", w)
-		return
+		return nil, nil, err
 	}
+	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(dResp.Body)
-	dResp.Body.Close()
+	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("ERR: Failed to read response body: %s\n%s\n", path, err)
-		endWithStatusCode(500, "TRPROXY_ERROR_DONOR_GET_2", w)
-		return
+		return nil, nil, err
 	}
 
-	// write to target
-	if dResp.StatusCode == http.StatusOK {
-		tResp, err := target.Post(path, dResp.Header, body)
-		if err != nil {
-			fmt.Printf("ERR: Failed to POST: %s\n%s\n", path, err)
-			endWithStatusCode(500, "TRPROXY_ERROR_TARGET_POST_1", w)
-			return
-		}
-		fmt.Println("POST status:", tResp.Status)
-	}
-
-	// answer to client
-	endWithHTTPResponse(w, dResp, body)
+	return
 }
