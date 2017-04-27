@@ -141,7 +141,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 }
 
 func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
-	fmt.Printf("ERR: %s (%s)\n%s\n", msg, r.URL.Path, err)
+	fmt.Printf("ERR: %s (%s)\n^^^ %s ^^^\n", msg, r.URL.Path, err)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }

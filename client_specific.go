@@ -55,7 +55,7 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 func postProcessRiak(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
 	if riakSecondaryIndexSearch.MatchString(r.URL.Path) {
 		storeSecondaryIndexeResponse(donor, target, resp, r, body)
-		return false, err // exit without errors (no storing second time needed)
+		return false, nil // exit without errors (no storing second time needed)
 	}
 	return postProcessDefault(donor, target, resp, r, body)
 }
@@ -79,7 +79,7 @@ func storeSecondaryIndexeResponse(donor, target *endpoint.Instance, resp *http.R
 		}
 	}
 
-	return err
+	return nil
 }
 
 func getKeysFrom2iResponse(body []byte) (result []string, err error) {
@@ -153,19 +153,21 @@ func retrieveKey(donor, target *endpoint.Instance, keyPath string) (err error) {
 		return errors.New("TARGET_GET_KEY")
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		resp, body, err = readClient(donor, keyPath)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			return errors.New("DONOR_GET_KEY")
 		}
 	}
 
-	err = storeResponse(target, keyPath, resp.Header, body)
-	if err != nil {
-		return errors.New("TARGET_WRITE_KEY")
+	if resp.StatusCode == http.StatusOK {
+		err = storeResponse(target, keyPath, resp.Header, body)
+		if err != nil {
+			return errors.New("TARGET_WRITE_KEY")
+		}
 	}
 
-	return
+	return nil
 }
 
 func readClient(client *endpoint.Instance, path string) (resp *http.Response, body []byte, err error) {
