@@ -116,7 +116,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 		return
 	}
 
-	fmt.Println("FETCH donor:", r.URL.Path)
+	fmt.Println("FETCH donor:", r.URL.String())
 	resp, body, err = clientDoRequest(donor, r)
 	if err != nil {
 		writeErrorResponse("DONOR_DO "+r.Method, r, w, err)
@@ -130,7 +130,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 	}
 
 	if storeResult {
-		err = storeResponse(target, r.URL.Path, resp.Header, body)
+		err = storeResponse(target, r.URL.String(), resp.Header, body)
 		if err != nil {
 			writeErrorResponse("TARGET_STORE", r, w, err)
 			return
@@ -141,13 +141,13 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 }
 
 func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
-	fmt.Printf("ERR: %s (%s)\n^^^ %s ^^^\n", msg, r.URL.Path, err)
+	fmt.Printf("ERR: %s (%s)\n^^^ %s ^^^\n", msg, r.URL.String(), err)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }
 
 func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
-	defer fmt.Println("CLI resp:", resp.StatusCode, resp.Request.URL.Path)
+	defer fmt.Println("CLI resp:", resp.StatusCode, resp.Request.URL.String())
 
 	headers := w.Header()
 	for k, v := range resp.Header {

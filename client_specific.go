@@ -30,7 +30,7 @@ func isNeedProxyPassDefault(resp *http.Response, r *http.Request, body []byte) b
 func postProcessDefault(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
 	storeResult = resp.StatusCode == http.StatusOK
 	if r.Method == "HEAD" {
-		err = retrieveKey(donor, target, r.URL.Path) // update full key, not onlyHEAD
+		err = retrieveKey(donor, target, r.URL.String()) // update full key, not onlyHEAD
 		storeResult = false
 	}
 	return storeResult, err
@@ -38,10 +38,10 @@ func postProcessDefault(donor, target *endpoint.Instance, resp *http.Response, r
 
 // -- RIAK ---------------------------------------------
 func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool {
-	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(r.URL.Path) {
+	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(r.URL.String()) {
 		var keys, err = getKeysFrom2iResponse(body)
 		if err != nil {
-			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", r.URL.Path, body)
+			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", r.URL.String(), body)
 			return false
 		}
 		if len(keys) == 0 {
@@ -53,7 +53,7 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 }
 
 func postProcessRiak(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
-	if riakSecondaryIndexSearch.MatchString(r.URL.Path) {
+	if riakSecondaryIndexSearch.MatchString(r.URL.String()) {
 		storeSecondaryIndexeResponse(donor, target, resp, r, body)
 		return false, nil // exit without errors (no storing second time needed)
 	}
@@ -66,7 +66,7 @@ func storeSecondaryIndexeResponse(donor, target *endpoint.Instance, resp *http.R
 		return err
 	}
 
-	indexBucket, err := get2iBucket(r.URL.Path)
+	indexBucket, err := get2iBucket(r.URL.String())
 	if err != nil {
 		return err
 	}

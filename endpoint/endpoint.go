@@ -64,13 +64,20 @@ func (inst *Instance) MakeReadOnly() *Instance {
 }
 
 func (inst *Instance) getRequest(method, path string) *http.Request {
-	fmt.Println(method + " " + inst.protocol + "://" + inst.host + ":" + inst.port + path)
+	u, err := url.Parse(path)
+	if err != nil {
+		fmt.Println("ERR: cant parse URL", path)
+	}
+	fmt.Println(method + " " + inst.protocol + "://" + inst.host + ":" + inst.port + u.Path + u.RawQuery + u.Fragment)
+
 	return &http.Request{
 		Method: method,
 		URL: &url.URL{
-			Scheme: inst.protocol,
-			Host:   inst.host + ":" + inst.port,
-			Path:   path,
+			Scheme:   inst.protocol,
+			Host:     inst.host + ":" + inst.port,
+			Path:     u.Path,
+			RawQuery: u.RawQuery,
+			Fragment: u.Fragment,
 		},
 	}
 }
@@ -99,11 +106,11 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	if inst.readonly {
 		if strings.ToUpper(originalRq.Method) == "POST" || strings.ToUpper(originalRq.Method) == "PUT" ||
 			strings.ToUpper(originalRq.Method) == "PATCH" {
-			fmt.Println("ERR: CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.Host+originalRq.URL.Path)
+			fmt.Println("ERR: CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.String())
 			return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
 		}
 	}
-	rq := inst.getRequest(originalRq.Method, originalRq.URL.Path)
+	rq := inst.getRequest(originalRq.Method, originalRq.URL.String())
 	rq.Header = originalRq.Header
 	rq.Body = originalRq.Body
 	rq.ContentLength = originalRq.ContentLength
@@ -111,7 +118,7 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	res, err := inst.client.Do(rq)
 	counter := 50
 	for err != nil {
-		fmt.Println(">>> retry left:", counter, originalRq.URL.Path)
+		fmt.Println(">>> retry left:", counter, originalRq.URL.String())
 		time.Sleep(100 * time.Millisecond)
 		res, err = inst.client.Do(rq)
 		counter--
