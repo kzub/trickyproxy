@@ -14,7 +14,7 @@ import (
 type resultStatus int
 
 const (
-	version  string       = "1.9"
+	version  string       = "1.9.1"
 	success  resultStatus = iota
 	fail     resultStatus = iota
 	notFound resultStatus = iota
