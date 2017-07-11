@@ -70,7 +70,7 @@ func (inst *Instance) getRequest(method, path string) *http.Request {
 	}
 
 	text := method + " " + inst.protocol + "://" + inst.host + ":" + inst.port
-	if len(u.RawPath) {
+	if len(u.RawPath) > 0 {
 		text += u.RawPath
 	} else {
 		text += u.Path
