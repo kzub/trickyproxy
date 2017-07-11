@@ -68,7 +68,20 @@ func (inst *Instance) getRequest(method, path string) *http.Request {
 	if err != nil {
 		fmt.Println("ERR: cant parse URL", path)
 	}
-	fmt.Println(method + " " + inst.protocol + "://" + inst.host + ":" + inst.port + u.Path + u.RawQuery + u.Fragment)
+
+	text := method + " " + inst.protocol + "://" + inst.host + ":" + inst.port
+	if len(u.RawPath) {
+		text += u.RawPath
+	} else {
+		text += u.Path
+	}
+	if len(u.RawQuery) > 0 {
+		text += "?" + u.RawQuery
+	}
+	if len(u.Fragment) > 0 {
+		text += "#" + u.Fragment
+	}
+	fmt.Println(text)
 
 	return &http.Request{
 		Method: method,
@@ -76,6 +89,7 @@ func (inst *Instance) getRequest(method, path string) *http.Request {
 			Scheme:   inst.protocol,
 			Host:     inst.host + ":" + inst.port,
 			Path:     u.Path,
+			RawPath:  u.RawPath,
 			RawQuery: u.RawQuery,
 			Fragment: u.Fragment,
 		},
@@ -110,7 +124,12 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 			return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
 		}
 	}
-	rq := inst.getRequest(originalRq.Method, originalRq.URL.String())
+	originalPath := originalRq.URL.Path
+	if len(originalRq.URL.RawPath) > 0 {
+		originalPath = originalRq.URL.RawPath
+	}
+
+	rq := inst.getRequest(originalRq.Method, originalPath)
 	rq.Header = originalRq.Header
 	rq.Body = originalRq.Body
 	rq.ContentLength = originalRq.ContentLength
@@ -118,7 +137,7 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	res, err := inst.client.Do(rq)
 	counter := 50
 	for err != nil {
-		fmt.Println(">>> retry left:", counter, originalRq.URL.String())
+		fmt.Println(">>> retry left:", counter, originalPath)
 		time.Sleep(100 * time.Millisecond)
 		res, err = inst.client.Do(rq)
 		counter--
