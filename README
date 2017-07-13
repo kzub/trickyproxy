@@ -1,18 +1,18 @@
-HTTP proxy for splitting requests in some unusaual way.
+HTTP proxy for splitting requests in some unusual way.
 
 1 round
 HTTP GET    ---------->     trickyproxy -> GET -> SERVER_1 
-						                trickyproxy <- (HTTP_404)
-						                trickyproxy -> GET -> SERVER_2
-						                trickyproxy <- (HTTP_200)
-						                trickyproxy -> POST -> SERVER_1
-						                trickyproxy <- (HTTP_200)
+                            trickyproxy <- (HTTP_404)
+                            trickyproxy -> GET -> SERVER_2
+                            trickyproxy <- (HTTP_200)
+                            trickyproxy -> POST -> SERVER_1
+                            trickyproxy <- (HTTP_200)
 RESPONSE FROM SERVER_2  <-  trickyproxy
 
 
 2 round    
 HTTP GET    ---------->     trickyproxy -> GET -> SERVER_1 
-						                trickyproxy <- (HTTP_200)
+                            trickyproxy <- (HTTP_200)
 RESPONSE FROM SERVER_1  <-  trickyproxy
 
 -----------------
