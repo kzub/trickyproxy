@@ -14,7 +14,7 @@ import (
 type resultStatus int
 
 const (
-	version  string       = "1.9.1"
+	version  string       = "2.0.0"
 	success  resultStatus = iota
 	fail     resultStatus = iota
 	notFound resultStatus = iota
@@ -67,8 +67,12 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 		data := strings.Split(val, ":")
 		host := data[0]
 		port := cleanString(data[1])
+		auth := ""
+		if len(data) > 2 {
+			auth = cleanString(data[2])
+		}
 		fmt.Println("adding donor upstream", host, port)
-		donors.Add(endpoint.NewTLS(host, port, keyfile, crtfile).MakeReadOnly())
+		donors.Add(endpoint.NewTLS(host, port, auth, keyfile, crtfile).MakeReadOnly())
 	}
 	return &donors
 }
@@ -77,14 +81,20 @@ func setupTarget(targetConfig string) *endpoint.Instance {
 	data := strings.Split(targetConfig, ":")
 	host := data[0]
 	port := cleanString(data[1])
-	fmt.Println("adding target upstream", host, port)
-	target := endpoint.New(host, port, "http")
-	return target
+	space := ""
+	if len(data) > 2 {
+		space = cleanString(data[2]) + "_"
+	}
+	fmt.Println("adding target upstream", host, port, space)
+	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space))
 }
 
 func cleanString(str string) string {
+	str = strings.TrimRight(str, " ")
 	str = strings.TrimRight(str, "\n")
 	str = strings.TrimRight(str, "\r")
+	str = strings.TrimRight(str, " ")
+	str = strings.TrimLeft(str, " ")
 	return str
 }
 

@@ -1,0 +1,54 @@
+HTTP proxy for splitting requests in some unusaual way.
+
+1 round
+HTTP GET    ---------->     trickyproxy -> GET -> SERVER_1 
+						                trickyproxy <- (HTTP_404)
+						                trickyproxy -> GET -> SERVER_2
+						                trickyproxy <- (HTTP_200)
+						                trickyproxy -> POST -> SERVER_1
+						                trickyproxy <- (HTTP_200)
+RESPONSE FROM SERVER_2  <-  trickyproxy
+
+
+2 round    
+HTTP GET    ---------->     trickyproxy -> GET -> SERVER_1 
+						                trickyproxy <- (HTTP_200)
+RESPONSE FROM SERVER_1  <-  trickyproxy
+
+-----------------
+Fetch data from servers
+donors.conf format:
+ip1:port[:base64_auth]
+ip2:port[:base64_auth]
+ip3:port[:base64_auth]
+
+example:
+8.8.8.8:8098
+8.8.8.9:8098
+8.8.8.7:8098
+somegateway.com:443:bG9naW46cGFzcwo=
+
+-----------------
+Store fetched data at service
+target.conf format
+ip:port[:vspace]
+
+example 1:
+8.8.8.8:8098
+
+example 2:
+8.8.8.8:8098:db1
+
+
+-----------------
+Where to listen for incomming requests
+srvaddr.conf format
+ip:port
+
+example 1:
+8.8.8.8:8036
+
+
+
+
+

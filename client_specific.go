@@ -14,10 +14,35 @@ import (
 
 var riakSecondaryIndexSearch *regexp.Regexp
 
+// -- DEFAULT ---------------------------------------------
 var isNeedProxyPass = isNeedProxyPassDefault
 var postProcess = postProcessDefault
+var urlEncoder = urlNoEncoder
+var headerEncoder = headerNoEncoder
+var headerDecoder = headerNoEncoder
 
-// -- DEFAULT ---------------------------------------------
+func setRiakProxyMode() {
+	var err error
+	riakSecondaryIndexSearch, err = regexp.Compile("^/buckets/.*/index/")
+
+	if err != nil {
+		panic("setRiakProxyMode, cannot compile regexp")
+	}
+
+	isNeedProxyPass = isNeedProxyPassRiak
+	postProcess = postProcessRiak
+	urlEncoder = riakURLEncoder
+	headerEncoder = riakHeaderEncoder
+	headerDecoder = riakHeaderDecoder
+}
+
+func urlNoEncoder(space string) endpoint.URLModifier {
+	return nil
+}
+func headerNoEncoder(space string) endpoint.HeaderModifier {
+	return nil
+}
+
 func isNeedProxyPassDefault(resp *http.Response, r *http.Request, body []byte) bool {
 	if resp.StatusCode == http.StatusNotFound {
 		if r.Method == "GET" || r.Method == "HEAD" {
@@ -26,17 +51,6 @@ func isNeedProxyPassDefault(resp *http.Response, r *http.Request, body []byte) b
 	}
 	return false
 }
-
-func postProcessDefault(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
-	storeResult = resp.StatusCode == http.StatusOK
-	if r.Method == "HEAD" {
-		err = retrieveKey(donor, target, r.URL.String()) // update full key, not onlyHEAD
-		storeResult = false
-	}
-	return storeResult, err
-}
-
-// -- RIAK ---------------------------------------------
 func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool {
 	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(r.URL.String()) {
 		var keys, err = getKeysFrom2iResponse(body)
@@ -52,6 +66,14 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 	return isNeedProxyPassDefault(resp, r, body)
 }
 
+func postProcessDefault(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
+	storeResult = resp.StatusCode == http.StatusOK
+	if r.Method == "HEAD" {
+		err = retrieveKey(donor, target, r.URL.String()) // update full key, not onlyHEAD
+		storeResult = false
+	}
+	return storeResult, err
+}
 func postProcessRiak(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
 	if riakSecondaryIndexSearch.MatchString(r.URL.String()) {
 		storeSecondaryIndexeResponse(donor, target, resp, r, body)
@@ -123,18 +145,6 @@ func get2iNameValue(path string) (name string, value string, err error) {
 	return name, value, nil
 }
 
-func setRiakProxyMode() {
-	var err error
-	riakSecondaryIndexSearch, err = regexp.Compile("^/buckets/.*/index/")
-
-	if err != nil {
-		panic("setRiakProxyMode, cannot compile regexp")
-	}
-
-	isNeedProxyPass = isNeedProxyPassRiak
-	postProcess = postProcessRiak
-}
-
 // -- HELP FUNCTIONS ---------------------------------------
 func storeResponse(target *endpoint.Instance, path string, headers http.Header, body []byte) (err error) {
 	resp, err := target.Post(path, headers, body)
@@ -184,4 +194,69 @@ func readClient(client *endpoint.Instance, path string) (resp *http.Response, bo
 	}
 
 	return resp, body, nil
+}
+
+func riakURLEncoder(space string) endpoint.URLModifier {
+	if space == "" {
+		return nil
+	}
+	rexp, err := regexp.Compile("/riak/")
+	if err != nil {
+		panic("COULD NOT MAKE REGEXP ENCODER")
+	}
+	replaceString := "/riak/" + space
+	return replacerFunc(rexp, replaceString)
+}
+
+func riakURLDecoder(space string) endpoint.URLModifier {
+	if space == "" {
+		return nil
+	}
+	rexp, err := regexp.Compile("/riak/" + space)
+	if err != nil {
+		panic("COULD NOT MAKE REGEXP ENCODER")
+	}
+	replaceString := "/riak/"
+	return replacerFunc(rexp, replaceString)
+}
+
+func replacerFunc(rexp *regexp.Regexp, replaceString string) endpoint.URLModifier {
+	return func(path string) string {
+		if len(path) > 0 {
+			return rexp.ReplaceAllLiteralString(path, replaceString)
+		}
+		return path
+	}
+}
+
+func riakHeaderEncoder(space string) endpoint.HeaderModifier {
+	if space == "" {
+		return nil
+	}
+	return getHeaderCoder(riakURLEncoder(space))
+}
+
+func riakHeaderDecoder(space string) endpoint.HeaderModifier {
+	if space == "" {
+		return nil
+	}
+	return getHeaderCoder(riakURLDecoder(space))
+}
+
+// getHeaderCoder return specified encoder
+func getHeaderCoder(encoder endpoint.URLModifier) endpoint.HeaderModifier {
+	return func(headers http.Header) http.Header {
+		h := make(http.Header)
+		for k, v := range headers {
+			if k == "Link" {
+				h[k] = make([]string, len(headers[k]))
+				for lk, lv := range v {
+					h[k][lk] = encoder(lv)
+				}
+				continue
+			}
+			h[k] = v
+		}
+		return h
+	}
 }
