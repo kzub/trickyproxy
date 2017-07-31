@@ -200,7 +200,7 @@ func riakURLEncoder(space string) endpoint.URLModifier {
 	if space == "" {
 		return nil
 	}
-	rexp, err := regexp.Compile("/([^/­]+)/")
+	rexp, err := regexp.Compile("^/([^/­]+)/")
 	if err != nil {
 		panic("COULD NOT MAKE REGEXP ENCODER")
 	}
@@ -212,7 +212,7 @@ func riakURLDecoder(space string) endpoint.URLModifier {
 	if space == "" {
 		return nil
 	}
-	rexp, err := regexp.Compile("/([^/­]+)/" + space)
+	rexp, err := regexp.Compile("^/([^/­]+)/" + space)
 	if err != nil {
 		panic("COULD NOT MAKE REGEXP ENCODER")
 	}
