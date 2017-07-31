@@ -48,7 +48,7 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 		headerEncoder: headerEncoder,
 		headerDecoder: headerDecoder,
 		client: &http.Client{
-			Timeout: time.Second * 60,
+			Timeout: time.Second * 4,
 		},
 	}
 }
