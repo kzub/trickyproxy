@@ -126,7 +126,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 		return
 	}
 
-	fmt.Println("FETCH donor:", r.URL.String())
+	fmt.Println("FETCH donor:", r.URL.Host)
 	resp, body, err = clientDoRequest(donor, r)
 	if err != nil {
 		writeErrorResponse("DONOR_DO "+r.Method, r, w, err)
