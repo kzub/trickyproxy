@@ -49,6 +49,9 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 		headerDecoder: headerDecoder,
 		client: &http.Client{
 			Timeout: time.Second * 4,
+			Transport: &http.Transport{
+				DisableCompression: true, // without this, try to decompress plain data by default.
+			},
 		},
 	}
 }
