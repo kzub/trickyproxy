@@ -7,14 +7,16 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 )
 
 type resultStatus int
 
 const (
-	version  string       = "2.0.3"
+	version  string       = "2.1.0"
 	success  resultStatus = iota
 	fail     resultStatus = iota
 	notFound resultStatus = iota
@@ -26,6 +28,7 @@ func main() {
 	dnrfile := flag.String("donors", "donors.conf", "donors hosts list")
 	trgfile := flag.String("target", "target.conf", "target host address")
 	srvfile := flag.String("srvaddr", "srvaddr.conf", "server host & port to listen")
+	excfile := flag.String("noproxy", "noproxy.conf", "request path exceptions list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
 	flag.Parse()
 
@@ -38,22 +41,26 @@ func main() {
 		setRiakProxyMode()
 	}
 
-	donorsConfig := readConfig(*dnrfile)
-	targetConfig := readConfig(*trgfile)
-	serverConfig := cleanString(readConfig(*srvfile))
+	donorsConfig := readConfig(*dnrfile, true)
+	targetConfig := readConfig(*trgfile, true)
+	serverConfig := readConfig(*srvfile, true)
+	exceptionsPaths := readConfig(*excfile, false)
 
 	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
 	target := setupTarget(targetConfig)
-	setupServer(donors, target, serverConfig)
+	setupServer(donors, target, exceptionsPaths, serverConfig)
 }
 
-func readConfig(filename string) string {
+func readConfig(filename string, required bool) string {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
-		panic("ERR: CANNOT READ CONFIG FILE:" + filename)
+		if required {
+			panic("ERR: CANNOT READ CONFIG FILE:" + filename)
+		}
+		return ""
 	}
 
-	return string(data[:])
+	return cleanString(string(data[:]))
 }
 
 func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
@@ -72,7 +79,9 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 			auth = cleanString(data[2])
 		}
 		fmt.Println("adding donor upstream", host, port)
-		donors.Add(endpoint.NewTLS(host, port, auth, keyfile, crtfile).MakeReadOnly())
+		ep := endpoint.NewTLS(host, port, auth, keyfile, crtfile)
+		ep.MakeReadOnly()
+		donors.Add(ep)
 	}
 	return &donors
 }
@@ -98,14 +107,52 @@ func cleanString(str string) string {
 	return str
 }
 
-func makeHandler(donors *endpoint.Instances, target *endpoint.Instance) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		serveRequest(donors.Random(), target, w, r)
+type checkFunc func(rURL *url.URL) bool
+
+func buildExceptionsRegexp(exceptionsPaths string) checkFunc {
+	var exceptions []*regexp.Regexp
+	if len(exceptionsPaths) == 0 {
+		fmt.Println("No paths exceptions")
+		return func(rURL *url.URL) bool {
+			return false
+		}
+	}
+
+	data := strings.Split(exceptionsPaths, "\n")
+
+	for _, v := range data {
+		if len(v) == 0 {
+			continue
+		}
+		expr, err := regexp.Compile(v)
+		if err != nil {
+			panic("BAD RegExp in exceptions config:" + v)
+		}
+		fmt.Println("adding path exception: " + v)
+		exceptions = append(exceptions, expr)
+	}
+
+	return func(rURL *url.URL) bool {
+		path := getPathFromURL(rURL)
+		for _, v := range exceptions {
+			if v.MatchString(path) {
+				fmt.Println("skip donor request in case of exception:", v)
+				return true
+			}
+		}
+		return false
 	}
 }
 
-func setupServer(donors *endpoint.Instances, target *endpoint.Instance, serverAddr string) {
-	http.HandleFunc("/", makeHandler(donors, target))
+func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths string) func(w http.ResponseWriter, r *http.Request) {
+	exceptions := buildExceptionsRegexp(exceptionsPaths)
+	return func(w http.ResponseWriter, r *http.Request) {
+		serveRequest(donors.Random(), target, w, r, exceptions)
+	}
+}
+
+func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, serverAddr string) {
+	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths))
 	fmt.Println("Ready on [" + serverAddr + "]")
 	err := http.ListenAndServe(serverAddr, nil)
 	if err != nil {
@@ -114,14 +161,14 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, serverAd
 	}
 }
 
-func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request) {
+func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc) {
 	resp, body, err := clientDoRequest(target, r)
 	if err != nil {
 		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err)
 		return
 	}
 
-	if !isNeedProxyPass(resp, r, body) {
+	if !isNeedProxyPass(resp, r, body) || noProxyPass(r.URL) {
 		writeResponse(w, resp, body)
 		return
 	}
