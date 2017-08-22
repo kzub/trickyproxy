@@ -4,3 +4,5 @@ srvaddr.conf
 target.conf
 certs
 trickyproxy
+noproxy.conf
+

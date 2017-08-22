@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -52,10 +53,10 @@ func isNeedProxyPassDefault(resp *http.Response, r *http.Request, body []byte) b
 	return false
 }
 func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool {
-	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(r.URL.String()) {
+	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(getPathFromURL(r.URL)) {
 		var keys, err = getKeysFrom2iResponse(body)
 		if err != nil {
-			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", r.URL.String(), body)
+			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", getPathFromURL(r.URL), body)
 			return false
 		}
 		if len(keys) == 0 {
@@ -69,13 +70,13 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 func postProcessDefault(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
 	storeResult = resp.StatusCode == http.StatusOK
 	if r.Method == "HEAD" {
-		err = retrieveKey(donor, target, r.URL.String()) // update full key, not onlyHEAD
+		err = retrieveKey(donor, target, getPathFromURL(r.URL)) // update full key, not onlyHEAD
 		storeResult = false
 	}
 	return storeResult, err
 }
 func postProcessRiak(donor, target *endpoint.Instance, resp *http.Response, r *http.Request, body []byte) (storeResult bool, err error) {
-	if riakSecondaryIndexSearch.MatchString(r.URL.String()) {
+	if riakSecondaryIndexSearch.MatchString(getPathFromURL(r.URL)) {
 		storeSecondaryIndexeResponse(donor, target, resp, r, body)
 		return false, nil // exit without errors (no storing second time needed)
 	}
@@ -88,7 +89,7 @@ func storeSecondaryIndexeResponse(donor, target *endpoint.Instance, resp *http.R
 		return err
 	}
 
-	indexBucket, err := get2iBucket(r.URL.String())
+	indexBucket, err := get2iBucket(getPathFromURL(r.URL))
 	if err != nil {
 		return err
 	}
@@ -260,4 +261,12 @@ func getHeaderCoder(encoder endpoint.URLModifier) endpoint.HeaderModifier {
 		}
 		return h
 	}
+}
+
+func getPathFromURL(rURL *url.URL) string {
+	path := rURL.Path
+	if len(rURL.RawPath) > 0 {
+		path = rURL.RawPath
+	}
+	return path
 }
