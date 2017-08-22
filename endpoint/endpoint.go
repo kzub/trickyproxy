@@ -180,8 +180,8 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 		time.Sleep(200 * time.Millisecond)
 		res, err = inst.client.Do(rq)
 		counter--
-		if counter == 0 {
-			break
+		if err != nil && counter == 0 {
+			return nil, err
 		}
 	}
 
