@@ -120,27 +120,43 @@ func getKeysFrom2iResponse(body []byte) (result []string, err error) {
 
 func get2iBucket(path string) (res string, err error) {
 	if res = riakSecondaryIndexSearch.FindString(path); res == "" {
-		return res, errors.New("BUCKET_NOT_FOUND 2i")
+		return res, errors.New("BUCKET_NOT_FOUND get2iBucket")
 	}
 
 	var parts = strings.Split(res, "/")
+	if len(parts) < 3 {
+		return res, errors.New("BUCKET_NOT_FOUND get2iBucket wrong size")
+	}
 
 	return parts[2], nil
 }
 
 func get2iNameValue(path string) (name string, value string, err error) {
-	var pos []int
-	if pos = riakSecondaryIndexSearch.FindStringIndex(path); pos == nil {
-		return name, value, errors.New("BUCKET_NOT_FOUND_2 2i")
+	var matches []int
+	if matches = riakSecondaryIndexSearch.FindStringIndex(path); matches == nil {
+		return name, value, errors.New("BUCKET_NOT_FOUND_2 get2iNameValue")
 	}
 
-	var tail = path[pos[1]:]
+	if len(matches) < 2 {
+		return name, value, errors.New("BUCKET_NOT_FOUND_2 get2iNameValue wrong size")
+	}
+
+	var pos = matches[1]
+	if pos > len(path) {
+		return name, value, errors.New("BUCKET_NOT_FOUND_2 get2iNameValue wrong position")
+	}
+
+	var tail = path[pos:]
 	var parts = strings.Split(tail, "/")
+
+	if len(parts) < 2 {
+		return name, value, errors.New("BUCKET_NOT_FOUND_2 get2iNameValue wrong key/value size")
+	}
 	name = parts[0]
 	value = parts[1]
 
 	if name == "" || value == "" {
-		return name, value, errors.New("NAME_OR_VALUE_NOT_FOUND 2i")
+		return name, value, errors.New("NAME_OR_VALUE_NOT_FOUND get2iNameValue")
 	}
 
 	return name, value, nil

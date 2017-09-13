@@ -174,10 +174,10 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	rq.ContentLength = originalRq.ContentLength
 
 	res, err := inst.client.Do(rq)
-	counter := 50
+	counter := 10
 	for err != nil {
 		fmt.Println(">>> retry left:", counter, rq.URL.Path)
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		res, err = inst.client.Do(rq)
 		counter--
 		if err != nil && counter == 0 {
