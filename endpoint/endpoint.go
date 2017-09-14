@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -198,19 +199,32 @@ type Instances struct {
 	instances []*Instance
 	counter   int
 	length    int
+	mutex     *sync.Mutex
+}
+
+// NewInstances make new instances list
+func NewInstances() *Instances {
+	return &Instances{
+		mutex: &sync.Mutex{},
+	}
 }
 
 // Add instance to the pool
 func (i *Instances) Add(inst *Instance) {
+	i.mutex.Lock()
 	i.instances = append(i.instances, inst)
 	i.length++
+	i.mutex.Unlock()
 }
 
 // Random get random instance
 func (i *Instances) Random() *Instance {
+	i.mutex.Lock()
 	i.counter++
 	if i.counter >= i.length {
 		i.counter = 0
 	}
-	return i.instances[i.counter]
+	var instanceIdx = i.counter
+	i.mutex.Unlock()
+	return i.instances[instanceIdx]
 }

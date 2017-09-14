@@ -65,7 +65,7 @@ func readConfig(filename string, required bool) string {
 
 func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 	donorsList := strings.Split(donorsConfig, "\n")
-	donors := endpoint.Instances{}
+	donors := endpoint.NewInstances()
 
 	for _, val := range donorsList {
 		if len(val) == 0 {
@@ -83,7 +83,7 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 		ep.MakeReadOnly()
 		donors.Add(ep)
 	}
-	return &donors
+	return donors
 }
 
 func setupTarget(targetConfig string) *endpoint.Instance {
