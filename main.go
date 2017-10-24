@@ -72,6 +72,14 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 			continue
 		}
 		data := strings.Split(val, ":")
+
+		protocol := "https"
+		if data[0] == "http" || data[0] == "https" {
+			protocol = data[0]
+			data = data[1:]
+			data[0] = strings.TrimLeft(data[0], "//")
+		}
+
 		host := data[0]
 		port := cleanString(data[1])
 		auth := ""
@@ -79,7 +87,8 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 			auth = cleanString(data[2])
 		}
 		fmt.Println("adding donor upstream", host, port)
-		ep := endpoint.NewTLS(host, port, auth, keyfile, crtfile)
+
+		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile)
 		ep.MakeReadOnly()
 		donors.Add(ep)
 	}

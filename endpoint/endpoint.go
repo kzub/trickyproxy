@@ -58,16 +58,16 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 }
 
 // NewTLS make new tls Instance
-func NewTLS(host, port, auth, keyfile, crtfile string) *Instance {
+func NewTLS(protocol, host, port, auth, keyfile, crtfile string) *Instance {
 	cert, err := tls.LoadX509KeyPair(crtfile, keyfile)
 	if err != nil {
-		log.Fatal("ERR: Cannot load key/cert", err)
+		fmt.Println("No certificates loaded:", err)
 	}
 	config := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		InsecureSkipVerify: true,
 	}
-	Instance := New(host, port, "https", auth, nil, nil, nil)
+	Instance := New(host, port, protocol, auth, nil, nil, nil)
 	Instance.client.Transport = &http.Transport{
 		TLSClientConfig:    config,
 		DisableCompression: true,
@@ -169,7 +169,9 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	if len(originalRq.URL.RawPath) > 0 {
 		originalPath = originalRq.URL.RawPath
 	}
-
+	if len(originalRq.URL.RawQuery) > 0 {
+		originalPath += "?" + originalRq.URL.RawQuery
+	}
 	rq := inst.getRequest(originalRq.Method, originalPath, originalRq.Header, true)
 	rq.Body = originalRq.Body
 	rq.ContentLength = originalRq.ContentLength
