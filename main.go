@@ -142,7 +142,7 @@ func buildExceptionsRegexp(exceptionsPaths string) checkFunc {
 	}
 
 	return func(rURL *url.URL) bool {
-		path := getPathFromURL(rURL)
+		path := rURL.String()
 		for _, v := range exceptions {
 			if v.MatchString(path) {
 				fmt.Println("skip donor request in case of exception:", v)
