@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
@@ -29,6 +30,7 @@ func main() {
 	trgfile := flag.String("target", "target.conf", "target host address")
 	srvfile := flag.String("srvaddr", "srvaddr.conf", "server host & port to listen")
 	excfile := flag.String("noproxy", "noproxy.conf", "request path exceptions list")
+	stopfile := flag.String("stoplist", "stoplist.conf", "requests stop list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
 	flag.Parse()
 
@@ -45,10 +47,11 @@ func main() {
 	targetConfig := readConfig(*trgfile, true)
 	serverConfig := readConfig(*srvfile, true)
 	exceptionsPaths := readConfig(*excfile, false)
+	stopListPaths := readConfig(*stopfile, false)
 
 	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
 	target := setupTarget(targetConfig)
-	setupServer(donors, target, exceptionsPaths, serverConfig)
+	setupServer(donors, target, exceptionsPaths, stopListPaths, serverConfig)
 }
 
 func readConfig(filename string, required bool) string {
@@ -118,16 +121,16 @@ func cleanString(str string) string {
 
 type checkFunc func(rURL *url.URL) bool
 
-func buildExceptionsRegexp(exceptionsPaths string) checkFunc {
+func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 	var exceptions []*regexp.Regexp
-	if len(exceptionsPaths) == 0 {
-		fmt.Println("No paths exceptions")
+	if len(pathListRawData) == 0 {
+		fmt.Println("No paths for: " + name)
 		return func(rURL *url.URL) bool {
 			return false
 		}
 	}
 
-	data := strings.Split(exceptionsPaths, "\n")
+	data := strings.Split(pathListRawData, "\n")
 
 	for _, v := range data {
 		if len(v) == 0 {
@@ -135,9 +138,9 @@ func buildExceptionsRegexp(exceptionsPaths string) checkFunc {
 		}
 		expr, err := regexp.Compile(v)
 		if err != nil {
-			panic("BAD RegExp in exceptions config:" + v)
+			panic("BAD RegExp in " + name + ", config:" + v)
 		}
-		fmt.Println("adding path exception: " + v)
+		fmt.Println("adding path " + name + ": " + v)
 		exceptions = append(exceptions, expr)
 	}
 
@@ -145,7 +148,7 @@ func buildExceptionsRegexp(exceptionsPaths string) checkFunc {
 		path := rURL.String()
 		for _, v := range exceptions {
 			if v.MatchString(path) {
-				fmt.Println("skip donor request in case of exception:", v)
+				fmt.Println("skip donor request in case of "+name+":", v)
 				return true
 			}
 		}
@@ -153,15 +156,21 @@ func buildExceptionsRegexp(exceptionsPaths string) checkFunc {
 	}
 }
 
-func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths string) func(w http.ResponseWriter, r *http.Request) {
-	exceptions := buildExceptionsRegexp(exceptionsPaths)
+func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths string) func(w http.ResponseWriter, r *http.Request) {
+	exceptions := buildRegexpFromPath("exceptions", exceptionsPaths)
+	stopList := buildRegexpFromPath("stoplist", stopListPaths)
+
 	return func(w http.ResponseWriter, r *http.Request) {
+		if stopList(r.URL) {
+			writeErrorResponse("URL_IN_STOP_LIST "+r.Method, r, w, errors.New("FORBIDDEN REQUEST"))
+			return
+		}
 		serveRequest(donors.Random(), target, w, r, exceptions)
 	}
 }
 
-func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, serverAddr string) {
-	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths))
+func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths, serverAddr string) {
+	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths, stopListPaths))
 	fmt.Println("Ready on [" + serverAddr + "]")
 	err := http.ListenAndServe(serverAddr, nil)
 	if err != nil {
