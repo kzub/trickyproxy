@@ -219,8 +219,8 @@ func (i *Instances) Add(inst *Instance) {
 	i.mutex.Unlock()
 }
 
-// Random get random instance
-func (i *Instances) Random() *Instance {
+// Next get next endpoint instance
+func (i *Instances) Next() *Instance {
 	i.mutex.Lock()
 	i.counter++
 	if i.counter >= i.length {

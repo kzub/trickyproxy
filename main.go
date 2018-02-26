@@ -17,10 +17,10 @@ import (
 type resultStatus int
 
 const (
-	version  string       = "2.1.2"
-	success  resultStatus = iota
-	fail     resultStatus = iota
-	notFound resultStatus = iota
+	version   string       = "2.1.3"
+	servOk    resultStatus = iota
+	servFail  resultStatus = iota
+	servRetry resultStatus = iota
 )
 
 func main() {
@@ -165,7 +165,9 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 			writeErrorResponse("URL_IN_STOP_LIST "+r.Method, r, w, errors.New("FORBIDDEN REQUEST"))
 			return
 		}
-		serveRequest(donors.Random(), target, w, r, exceptions)
+		for callCount, res := 3, servRetry; res == servRetry && callCount >= 0; callCount-- {
+			res = serveRequest(donors.Next(), target, w, r, exceptions, callCount)
+		}
 	}
 }
 
@@ -179,40 +181,44 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 	}
 }
 
-func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc) {
+func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc, callCount int) resultStatus {
 	resp, body, err := clientDoRequest(target, r)
 	if err != nil {
 		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err)
-		return
+		return servFail
 	}
 
 	if !isNeedProxyPass(resp, r, body) || noProxyPass(r.URL) {
 		writeResponse(w, resp, body)
-		return
+		return servOk
 	}
 
 	fmt.Println("FETCH donor:", r.URL.Host)
 	resp, body, err = clientDoRequest(donor, r)
 	if err != nil {
+		if callCount > 0 {
+			return servRetry
+		}
 		writeErrorResponse("DONOR_DO "+r.Method, r, w, err)
-		return
+		return servFail
 	}
 
 	storeResult, err := postProcess(donor, target, resp, r, body)
 	if err != nil {
 		writeErrorResponse("POST_PROCESS", r, w, err)
-		return
+		return servFail
 	}
 
 	if storeResult {
 		err = storeResponse(target, r.URL.String(), resp.Header, body)
 		if err != nil {
 			writeErrorResponse("TARGET_STORE", r, w, err)
-			return
+			return servFail
 		}
 	}
 
 	writeResponse(w, resp, body)
+	return servOk
 }
 
 func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {

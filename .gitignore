@@ -1,5 +1,6 @@
 src
 donors.conf
+stoplist.conf
 srvaddr.conf
 target.conf
 certs
