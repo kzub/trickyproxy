@@ -177,15 +177,9 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err err
 	rq.ContentLength = originalRq.ContentLength
 
 	res, err := inst.client.Do(rq)
-	counter := 10
-	for err != nil {
-		fmt.Println(">>> retry left:", counter, rq.URL.Path)
-		time.Sleep(500 * time.Millisecond)
-		res, err = inst.client.Do(rq)
-		counter--
-		if err != nil && counter == 0 {
-			return nil, err
-		}
+	if err != nil {
+		// no retries here because you need to create new reader for POSTs body every retry
+		return nil, err
 	}
 
 	// modify output headers (remove virtual space prefixes from headers)

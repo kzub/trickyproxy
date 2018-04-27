@@ -195,6 +195,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 
 	fmt.Println("FETCH donor:", r.URL.Host)
 	resp, body, err = clientDoRequest(donor, r)
+
 	if err != nil {
 		if callCount > 0 {
 			return servRetry
