@@ -94,6 +94,7 @@ func storeSecondaryIndexeResponse(donor, target *endpoint.Instance, resp *http.R
 		return err
 	}
 
+	fmt.Println("GOT 2i KEYS:", len(keys), getPathFromURL(r.URL))
 	for _, key := range keys {
 		var keyPath = "/riak/" + indexBucket + "/" + key
 		err = retrieveKey(donor, target, keyPath)
