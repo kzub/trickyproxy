@@ -17,7 +17,7 @@ import (
 type resultStatus int
 
 const (
-	version   string       = "2.1.3"
+	version   string       = "2.1.4"
 	servOk    resultStatus = iota
 	servFail  resultStatus = iota
 	servRetry resultStatus = iota
