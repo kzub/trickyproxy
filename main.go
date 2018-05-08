@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -17,7 +16,7 @@ import (
 type resultStatus int
 
 const (
-	version   string       = "2.1.4"
+	version   string       = "2.2.0"
 	servOk    resultStatus = iota
 	servFail  resultStatus = iota
 	servRetry resultStatus = iota
@@ -182,7 +181,7 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 }
 
 func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc, callCount int) resultStatus {
-	resp, body, err := clientDoRequest(target, r)
+	resp, body, err := target.Do(r)
 	if err != nil {
 		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err)
 		return servFail
@@ -194,7 +193,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 	}
 
 	fmt.Println("FETCH donor:", r.URL.Host)
-	resp, body, err = clientDoRequest(donor, r)
+	resp, body, err = donor.Do(r)
 
 	if err != nil {
 		if callCount > 0 {
@@ -223,13 +222,19 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 }
 
 func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
-	fmt.Printf("ERR: %s (%s)\n^^^ %s ^^^\n", msg, r.URL.String(), err)
+	fmt.Printf("ERR: %s (%s) <<< %s\n", msg, r.URL.String(), err)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }
 
 func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
-	defer fmt.Println("CLI resp:", resp.StatusCode, resp.Request.URL.String())
+	defer func() {
+		if resp.StatusCode >= 500 {
+			fmt.Println("CLI resp:", resp.Status, resp.Request.URL.String(), string(respBody))
+		} else {
+			fmt.Println("CLI resp:", resp.Status, resp.Request.URL.String())
+		}
+	}()
 
 	headers := w.Header()
 	for k, v := range resp.Header {
@@ -238,19 +243,4 @@ func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) 
 
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
-}
-
-func clientDoRequest(client *endpoint.Instance, r *http.Request) (resp *http.Response, body []byte, err error) {
-	resp, err = client.Do(r)
-	if err != nil && err != io.EOF {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return
 }

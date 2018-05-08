@@ -51,7 +51,7 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 		client: &http.Client{
 			Timeout: time.Second * 4,
 			Transport: &http.Transport{
-				DisableCompression: true, // without this, try to decompress plain data by default.
+				DisableCompression: true, // without this decompress plain data by default.
 			},
 		},
 	}
@@ -98,96 +98,126 @@ func getURLText(inst *Instance, method string, u *url.URL) string {
 	return text
 }
 
-func (inst *Instance) getRequest(method, path string, header http.Header, verbose bool) *http.Request {
-	u, err := url.Parse(path)
-	if err != nil {
-		fmt.Println("ERR: cant parse URL", path)
+func (inst *Instance) getRequest(originalRq *http.Request) *http.Request {
+	newURL := &url.URL{
+		Scheme:     inst.protocol,
+		Opaque:     originalRq.URL.Opaque,
+		User:       originalRq.URL.User,
+		Host:       inst.host + ":" + inst.port,
+		Path:       originalRq.URL.Path,
+		RawPath:    originalRq.URL.RawPath,
+		ForceQuery: originalRq.URL.ForceQuery,
+		RawQuery:   originalRq.URL.RawQuery,
+		Fragment:   originalRq.URL.Fragment,
 	}
 
 	// modify input headers and url (add space prefix to the url)
 	if inst.urlEncoder != nil {
-		u.Path = inst.urlEncoder(u.Path)
-		u.RawPath = inst.urlEncoder(u.RawPath)
+		newURL.Path = inst.urlEncoder(originalRq.URL.Path)
+		newURL.RawPath = inst.urlEncoder(originalRq.URL.RawPath)
 	}
+	var header = make(http.Header)
 	if inst.headerEncoder != nil {
-		header = inst.headerEncoder(header)
+		header = inst.headerEncoder(originalRq.Header)
 	}
 	if inst.auth != "" {
 		header["Authorization"] = append(header["Authorization"], "Basic "+inst.auth)
 	}
-	if verbose {
-		fmt.Println(getURLText(inst, method, u))
-	}
+
+	fmt.Println(getURLText(inst, originalRq.Method, newURL))
 
 	return &http.Request{
-		Method: method,
-		Header: header,
-		URL: &url.URL{
-			Scheme:   inst.protocol,
-			Host:     inst.host + ":" + inst.port,
-			Path:     u.Path,
-			RawPath:  u.RawPath,
-			RawQuery: u.RawQuery,
-			Fragment: u.Fragment,
-		},
+		Method:        originalRq.Method,
+		Header:        header,
+		URL:           newURL,
+		Body:          originalRq.Body,
+		ContentLength: originalRq.ContentLength,
 	}
 }
 
 // Get load data from path
-func (inst *Instance) Get(path string) (resp *http.Response, err error) {
+func (inst *Instance) Get(path string) (resp *http.Response, body []byte, err error) {
+	url, _ := url.Parse(path)
 	return inst.Do(&http.Request{
 		Method: "GET",
-		URL: &url.URL{
-			Path: path,
-		},
+		URL:    url,
 	})
 }
 
 // Post something
-func (inst *Instance) Post(path string, headers http.Header, body []byte) (resp *http.Response, err error) {
+func (inst *Instance) Post(path string, headers http.Header, body []byte) (resp *http.Response, body2 []byte, err error) {
+	url, _ := url.Parse(path)
 	return inst.Do(&http.Request{
 		Method:        "POST",
 		Header:        headers,
 		ContentLength: int64(len(body)),
 		Body:          ioutil.NopCloser(bytes.NewBuffer(body)),
-		URL: &url.URL{
-			Path: path,
-		},
+		URL:           url,
 	})
 }
 
 // Do something
-func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, err error) {
+func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []byte, err error) {
 	if inst.readonly {
 		if strings.ToUpper(originalRq.Method) == "POST" || strings.ToUpper(originalRq.Method) == "PUT" ||
 			strings.ToUpper(originalRq.Method) == "PATCH" || strings.ToUpper(originalRq.Method) == "DELETE" {
 			fmt.Println("ERR: CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.String())
-			return nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
+			return nil, nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
 		}
 	}
-	originalPath := originalRq.URL.Path
-	if len(originalRq.URL.RawPath) > 0 {
-		originalPath = originalRq.URL.RawPath
-	}
-	if len(originalRq.URL.RawQuery) > 0 {
-		originalPath += "?" + originalRq.URL.RawQuery
-	}
-	rq := inst.getRequest(originalRq.Method, originalPath, originalRq.Header, true)
-	rq.Body = originalRq.Body
-	rq.ContentLength = originalRq.ContentLength
 
-	res, err := inst.client.Do(rq)
-	if err != nil {
-		// no retries here because you need to create new reader for POSTs body every retry
-		return nil, err
+	rq := inst.getRequest(originalRq)
+	var rqBodyData []byte
+
+	// make body data copy for retry
+	if rq.Body != nil {
+		rqBodyData, err = ioutil.ReadAll(rq.Body)
+		rq.Body.Close()
+		if err != nil {
+			fmt.Println("ERR: RQ_READ_BODY", err)
+			return nil, nil, err
+		}
+		rq.Body = ioutil.NopCloser(bytes.NewBuffer(rqBodyData))
+	}
+
+	// make a request!
+	resp, err = inst.client.Do(rq)
+
+	counter := 10
+	for err != nil {
+		fmt.Println(">>> retry left:", counter, getURLText(inst, originalRq.Method, rq.URL))
+		time.Sleep(500 * time.Millisecond)
+
+		// make new reader from stored data
+		if rq.Body != nil {
+			rq.Body = ioutil.NopCloser(bytes.NewBuffer(rqBodyData))
+		}
+		// make a request again!
+		resp, err = inst.client.Do(rq)
+		counter--
+
+		if err != nil && counter == 0 {
+			fmt.Println("ERR: DO_FAILED", err)
+			return nil, nil, err
+		}
+	}
+
+	// no error here, read body
+	if resp.Body != nil {
+		defer resp.Body.Close()
+		body, err = ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("ERR: RESP_READ_BODY", err)
+			return nil, nil, err
+		}
 	}
 
 	// modify output headers (remove virtual space prefixes from headers)
 	if inst.headerDecoder != nil {
-		res.Header = inst.headerDecoder(res.Header)
+		resp.Header = inst.headerDecoder(resp.Header)
 	}
 
-	return res, err
+	return resp, body, err
 }
 
 // Instances holds serveral endpoints

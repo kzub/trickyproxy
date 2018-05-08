@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -165,24 +163,28 @@ func get2iNameValue(path string) (name string, value string, err error) {
 
 // -- HELP FUNCTIONS ---------------------------------------
 func storeResponse(target *endpoint.Instance, path string, headers http.Header, body []byte) (err error) {
-	resp, err := target.Post(path, headers, body)
+	resp, respBody, err := target.Post(path, headers, body)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("POST status:", resp.Status)
+	if (resp.StatusCode != http.StatusOK) && (resp.StatusCode != http.StatusNoContent) {
+		fmt.Println("store status:", resp.Status, respBody)
+	} else {
+		fmt.Println("store status:", resp.Status)
+	}
 	return
 }
 
 func retrieveKey(donor, target *endpoint.Instance, keyPath string) (err error) {
 	fmt.Println("RETRIEVE KEY >>>>")
-	resp, body, err := readClient(target, keyPath)
+	resp, body, err := target.Get(keyPath)
 	if err != nil {
 		return errors.New("TARGET_GET_KEY")
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
-		resp, body, err = readClient(donor, keyPath)
+		resp, body, err = donor.Get(keyPath)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			return errors.New("DONOR_GET_KEY")
 		}
@@ -196,22 +198,6 @@ func retrieveKey(donor, target *endpoint.Instance, keyPath string) (err error) {
 	}
 
 	return nil
-}
-
-func readClient(client *endpoint.Instance, path string) (resp *http.Response, body []byte, err error) {
-	resp, err = client.Get(path)
-	if err != nil && err != io.EOF {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	// must read until the response is complete before calling Close().
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return resp, body, nil
 }
 
 func riakURLEncoder(space string) endpoint.URLModifier {
