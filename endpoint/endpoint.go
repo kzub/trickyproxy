@@ -185,7 +185,7 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []
 
 	counter := 10
 	for err != nil {
-		fmt.Println(">>> retry left:", counter, getURLText(inst, originalRq.Method, rq.URL))
+		fmt.Println("ERR:", err, ">>> retry left:", counter, getURLText(inst, originalRq.Method, rq.URL))
 		time.Sleep(500 * time.Millisecond)
 
 		// make new reader from stored data
