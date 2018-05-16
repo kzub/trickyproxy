@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
+	log "github.com/sirupsen/logrus"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -54,7 +54,7 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(getPathFromURL(r.URL)) {
 		var keys, err = getKeysFrom2iResponse(body)
 		if err != nil {
-			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", getPathFromURL(r.URL), body)
+			log.Errorf("ERROR PARSING 2i BODY (isNeedProxyPassRiak) %s %s", getPathFromURL(r.URL), body)
 			return false
 		}
 		if len(keys) == 0 {
@@ -92,12 +92,12 @@ func storeSecondaryIndexeResponse(donor, target *endpoint.Instance, resp *http.R
 		return err
 	}
 
-	fmt.Println("GOT 2i KEYS:", len(keys), getPathFromURL(r.URL))
+	log.Infof("GOT 2i KEYS: %s %s", len(keys), getPathFromURL(r.URL))
 	for _, key := range keys {
 		var keyPath = "/riak/" + indexBucket + "/" + key
 		err = retrieveKey(donor, target, keyPath)
 		if err != nil {
-			fmt.Println("ERROR RETRIEVE KEY 2i", keyPath, err)
+			log.Errorf("ERROR RETRIEVE KEY 2i %s %s", keyPath, err)
 		}
 	}
 
@@ -169,15 +169,15 @@ func storeResponse(target *endpoint.Instance, path string, headers http.Header, 
 	}
 
 	if (resp.StatusCode != http.StatusOK) && (resp.StatusCode != http.StatusNoContent) {
-		fmt.Println("store status:", resp.Status, respBody)
+		log.Infof("store status: %s %s", resp.Status, respBody)
 	} else {
-		fmt.Println("store status:", resp.Status)
+		log.Infof("store status: %s", resp.Status)
 	}
 	return
 }
 
 func retrieveKey(donor, target *endpoint.Instance, keyPath string) (err error) {
-	fmt.Println("RETRIEVE KEY >>>>")
+	log.Infof("RETRIEVE KEY >>>>")
 	resp, body, err := target.Get(keyPath)
 	if err != nil {
 		return errors.New("TARGET_GET_KEY")

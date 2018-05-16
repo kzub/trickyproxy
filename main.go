@@ -5,12 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type resultStatus int
@@ -31,10 +33,25 @@ func main() {
 	excfile := flag.String("noproxy", "noproxy.conf", "request path exceptions list")
 	stopfile := flag.String("stoplist", "stoplist.conf", "requests stop list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
+	logtype := flag.String("logtype", "text", "log messages formatting: [text | json]")
 	flag.Parse()
 
+	if *logtype == "json" {
+		log.SetFormatter(&log.JSONFormatter{
+			TimestampFormat: time.RFC3339Nano,
+			FieldMap: log.FieldMap{
+				log.FieldKeyMsg:  "message",
+				log.FieldKeyTime: "@timestamp",
+			}})
+	} else if *logtype == "text" {
+		log.SetFormatter(&log.TextFormatter{})
+	} else {
+		log.WithField("logtype", logtype).Fatal("Given logtype is invalid!")
+		os.Exit(1)
+	}
+
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("version " + version)
+		log.Infof("version %s", version)
 		return
 	}
 
@@ -88,7 +105,7 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 		if len(data) > 2 {
 			auth = cleanString(data[2])
 		}
-		fmt.Println("adding donor upstream", host, port)
+		log.Infof("adding donor upstream %s %s", host, port)
 
 		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile)
 		ep.MakeReadOnly()
@@ -105,7 +122,7 @@ func setupTarget(targetConfig string) *endpoint.Instance {
 	if len(data) > 2 {
 		space = cleanString(data[2]) + "_"
 	}
-	fmt.Println("adding target upstream", host, port, space)
+	log.Infof("adding target upstream %s %s %s", host, port, space)
 	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space))
 }
 
@@ -123,7 +140,7 @@ type checkFunc func(rURL *url.URL) bool
 func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 	var exceptions []*regexp.Regexp
 	if len(pathListRawData) == 0 {
-		fmt.Println("No paths for: " + name)
+		log.Infof("No paths for: %s", name)
 		return func(rURL *url.URL) bool {
 			return false
 		}
@@ -137,9 +154,10 @@ func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 		}
 		expr, err := regexp.Compile(v)
 		if err != nil {
-			panic("BAD RegExp in " + name + ", config:" + v)
+			log.Errorf("BAD RegExp in %s, config:%s", name, v)
+			os.Exit(1)
 		}
-		fmt.Println("adding path " + name + ": " + v)
+		log.Infof("adding path %s:%s", name, v)
 		exceptions = append(exceptions, expr)
 	}
 
@@ -147,7 +165,7 @@ func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 		path := rURL.String()
 		for _, v := range exceptions {
 			if v.MatchString(path) {
-				fmt.Println("skip donor request in case of "+name+":", v)
+				log.Infof("skip donor request in case of %s:%s", name, v)
 				return true
 			}
 		}
@@ -172,11 +190,12 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 
 func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths, serverAddr string) {
 	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths, stopListPaths))
-	fmt.Println("Ready on [" + serverAddr + "]")
+	log.Infof("Ready on [%s]", serverAddr)
 	err := http.ListenAndServe(serverAddr, nil)
 	if err != nil {
-		fmt.Println("ERR:", err)
-		panic("CANNOT SETUP SERVER AT " + serverAddr)
+		log.Errorf("ERR:%s", err)
+		log.Errorf("CANNOT SETUP SERVER AT %s", serverAddr)
+		os.Exit(1)
 	}
 }
 
@@ -192,7 +211,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 		return servOk
 	}
 
-	fmt.Println("FETCH donor:", r.URL.Host)
+	log.Infof("FETCH donor: %s", r.URL.Host)
 	resp, body, err = donor.Do(r)
 
 	if err != nil {
@@ -222,7 +241,7 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 }
 
 func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
-	fmt.Printf("ERR: %s (%s) <<< %s\n", msg, r.URL.String(), err)
+	log.Errorf("ERR: %s (%s) <<< %s", msg, r.URL.String(), err)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }
@@ -230,9 +249,9 @@ func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err 
 func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
 	defer func() {
 		if resp.StatusCode >= 500 {
-			fmt.Println("CLI resp:", resp.Status, resp.Request.URL.String(), string(respBody))
+			log.Infof("CLI resp:%s %s %s", resp.Status, resp.Request.URL.String(), string(respBody))
 		} else {
-			fmt.Println("CLI resp:", resp.Status, resp.Request.URL.String())
+			log.Infof("CLI resp:%s %s", resp.Status, resp.Request.URL.String())
 		}
 	}()
 
