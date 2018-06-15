@@ -38,7 +38,8 @@ func main() {
 
 	if *logtype == "json" {
 		log.SetFormatter(&log.JSONFormatter{
-			TimestampFormat: time.RFC3339Nano,
+			TimestampFormat:  time.RFC3339Nano,
+			DisableTimestamp: true,
 			FieldMap: log.FieldMap{
 				log.FieldKeyMsg:  "message",
 				log.FieldKeyTime: "@timestamp",
