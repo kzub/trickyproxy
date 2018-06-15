@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/kzub/trickyproxy/endpoint"
+	"github.com/tonymadbrain/trickyproxy/endpoint"
 	log "github.com/sirupsen/logrus"
 	"net/http"
 	"net/url"

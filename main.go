@@ -4,7 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/kzub/trickyproxy/endpoint"
+	"github.com/tonymadbrain/trickyproxy/endpoint"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
@@ -18,7 +18,7 @@ import (
 type resultStatus int
 
 const (
-	version   string       = "2.2.0"
+	version   string       = "2.2.1"
 	servOk    resultStatus = iota
 	servFail  resultStatus = iota
 	servRetry resultStatus = iota
