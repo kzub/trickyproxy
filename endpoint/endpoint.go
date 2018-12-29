@@ -116,9 +116,14 @@ func (inst *Instance) getRequest(originalRq *http.Request) *http.Request {
 		newURL.Path = inst.urlEncoder(originalRq.URL.Path)
 		newURL.RawPath = inst.urlEncoder(originalRq.URL.RawPath)
 	}
+
 	var header = make(http.Header)
 	if inst.headerEncoder != nil {
 		header = inst.headerEncoder(originalRq.Header)
+	} else { // copy headers
+		for k, v := range originalRq.Header {
+			header[k] = v
+		}
 	}
 	if inst.auth != "" {
 		header["Authorization"] = append(header["Authorization"], "Basic "+inst.auth)
