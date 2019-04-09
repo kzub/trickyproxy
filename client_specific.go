@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/kzub/trickyproxy/endpoint"
+	"github.com/tonymadbrain/trickyproxy/endpoint"
 	"net/http"
 	"net/url"
 	"regexp"
