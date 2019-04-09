@@ -36,10 +36,10 @@ func setRiakProxyMode() {
 }
 
 func urlNoEncoder(space string) endpoint.URLModifier {
-	return nil
+	return replacerFunc(nil, "")
 }
 func headerNoEncoder(space string) endpoint.HeaderModifier {
-	return nil
+	return getHeaderCoder(replacerFunc(nil, ""))
 }
 
 func isNeedProxyPassDefault(resp *http.Response, r *http.Request, body []byte) bool {
@@ -202,7 +202,7 @@ func retrieveKey(donor, target *endpoint.Instance, keyPath string) (err error) {
 
 func riakURLEncoder(space string) endpoint.URLModifier {
 	if space == "" {
-		return nil
+		return replacerFunc(nil, "")
 	}
 	rexp, err := regexp.Compile("(<|^)/([^/­]+)/")
 	if err != nil {
@@ -214,7 +214,7 @@ func riakURLEncoder(space string) endpoint.URLModifier {
 
 func riakURLDecoder(space string) endpoint.URLModifier {
 	if space == "" {
-		return nil
+		return replacerFunc(nil, "")
 	}
 
 	rexp, err := regexp.Compile("(<|^)/([^/­]+)/" + space)
@@ -227,24 +227,18 @@ func riakURLDecoder(space string) endpoint.URLModifier {
 
 func replacerFunc(rexp *regexp.Regexp, replaceString string) endpoint.URLModifier {
 	return func(path string) string {
-		if len(path) > 0 {
-			return rexp.ReplaceAllString(path, replaceString)
+		if len(replaceString) == 0 || len(path) == 0 || rexp == nil {
+			return path
 		}
-		return path
+		return rexp.ReplaceAllString(path, replaceString)
 	}
 }
 
 func riakHeaderEncoder(space string) endpoint.HeaderModifier {
-	if space == "" {
-		return nil
-	}
 	return getHeaderCoder(riakURLEncoder(space))
 }
 
 func riakHeaderDecoder(space string) endpoint.HeaderModifier {
-	if space == "" {
-		return nil
-	}
 	return getHeaderCoder(riakURLDecoder(space))
 }
 
