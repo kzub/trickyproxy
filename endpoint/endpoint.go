@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"go.uber.org/zap"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -129,7 +130,7 @@ func (inst *Instance) getRequest(originalRq *http.Request) *http.Request {
 		header["Authorization"] = append(header["Authorization"], "Basic "+inst.auth)
 	}
 
-	fmt.Println(getURLText(inst, originalRq.Method, newURL))
+	zap.L().Info(getURLText(inst, originalRq.Method, newURL))
 
 	return &http.Request{
 		Method:        originalRq.Method,

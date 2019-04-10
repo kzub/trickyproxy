@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tonymadbrain/trickyproxy/endpoint"
+	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -54,7 +55,10 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(getPathFromURL(r.URL)) {
 		var keys, err = getKeysFrom2iResponse(body)
 		if err != nil {
-			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", getPathFromURL(r.URL), body)
+			zap.L().Error("ERROR PARSING 2i BODY (isNeedProxyPassRiak)",
+				zap.String("url", getPathFromURL(r.URL)),
+				zap.String("body", string(body)),
+			)
 			return false
 		}
 		if len(keys) == 0 {
