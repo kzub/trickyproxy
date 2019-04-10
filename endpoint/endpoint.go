@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"go.uber.org/zap"
 	"io/ioutil"
 	"log"
@@ -62,7 +61,9 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 func NewTLS(protocol, host, port, auth, keyfile, crtfile string) *Instance {
 	cert, err := tls.LoadX509KeyPair(crtfile, keyfile)
 	if err != nil {
-		fmt.Println("No certificates loaded:", err)
+		zap.L().Error("no certificates loaded",
+			zap.String("error", err.Error()),
+		)
 	}
 	config := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
@@ -167,7 +168,9 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []
 	if inst.readonly {
 		if strings.ToUpper(originalRq.Method) == "POST" || strings.ToUpper(originalRq.Method) == "PUT" ||
 			strings.ToUpper(originalRq.Method) == "PATCH" || strings.ToUpper(originalRq.Method) == "DELETE" {
-			fmt.Println("ERR: CANNOT WRITE TO READONLY ENDPOINT", originalRq.URL.String())
+			zap.L().Error("CANNOT WRITE TO READONLY ENDPOINT",
+				zap.String("url", originalRq.URL.String()),
+			)
 			return nil, nil, errors.New("CANNOT WRITE TO READONLY ENDPOINT")
 		}
 	}
@@ -180,7 +183,9 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []
 		rqBodyData, err = ioutil.ReadAll(rq.Body)
 		rq.Body.Close()
 		if err != nil {
-			fmt.Println("ERR: RQ_READ_BODY", err)
+			zap.L().Error("RQ_READ_BODY",
+				zap.String("error", err.Error()),
+			)
 			return nil, nil, err
 		}
 		rq.Body = ioutil.NopCloser(bytes.NewBuffer(rqBodyData))
@@ -191,7 +196,11 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []
 
 	counter := 10
 	for err != nil {
-		fmt.Println("ERR:", err, ">>> retry left:", counter, getURLText(inst, originalRq.Method, rq.URL))
+		zap.L().Error("request error",
+			zap.String("error", err.Error()),
+			zap.Int("retry_left", counter),
+			zap.String("request", getURLText(inst, originalRq.Method, rq.URL)),
+		)
 		time.Sleep(500 * time.Millisecond)
 
 		// make new reader from stored data
@@ -203,7 +212,9 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []
 		counter--
 
 		if err != nil && counter == 0 {
-			fmt.Println("ERR: DO_FAILED", err)
+			zap.L().Error("DO_FAILED",
+				zap.String("error", err.Error()),
+			)
 			return nil, nil, err
 		}
 	}
@@ -213,7 +224,9 @@ func (inst *Instance) Do(originalRq *http.Request) (resp *http.Response, body []
 		defer resp.Body.Close()
 		body, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
-			fmt.Println("ERR: RESP_READ_BODY", err)
+			zap.L().Error("RESP_READ_BODY",
+				zap.String("error", err.Error()),
+			)
 			return nil, nil, err
 		}
 	}
