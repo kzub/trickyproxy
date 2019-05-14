@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/tonymadbrain/trickyproxy/endpoint"
+	"github.com/kzub/trickyproxy/endpoint"
 	"go.uber.org/zap"
 	"net/http"
 	"net/url"
