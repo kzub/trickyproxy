@@ -33,6 +33,7 @@ func main() {
 	excfile := flag.String("noproxy", "noproxy.conf", "request path exceptions list")
 	stopfile := flag.String("stoplist", "stoplist.conf", "requests stop list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
+	logformat := flag.String("logformat", "console", "change logformat to json")
 	flag.Parse()
 
 	if len(os.Args) > 1 && os.Args[1] == "version" {
@@ -61,7 +62,7 @@ func main() {
 			Initial:    100,
 			Thereafter: 100,
 		},
-		Encoding:         "json",
+		Encoding:         *logformat,
 		EncoderConfig:    encoderCfg,
 		OutputPaths:      []string{"stdout"},
 		ErrorOutputPaths: []string{"stdout"},
