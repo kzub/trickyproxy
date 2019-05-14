@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"github.com/kzub/trickyproxy/endpoint"
+	"github.com/tonymadbrain/trickyproxy/endpoint"
+	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -54,7 +54,10 @@ func isNeedProxyPassRiak(resp *http.Response, r *http.Request, body []byte) bool
 	if r.Method == "GET" && resp.StatusCode == http.StatusOK && riakSecondaryIndexSearch.MatchString(getPathFromURL(r.URL)) {
 		var keys, err = getKeysFrom2iResponse(body)
 		if err != nil {
-			fmt.Println("ERROR PARSING 2i BODY (isNeedProxyPassRiak)", getPathFromURL(r.URL), body)
+			zap.L().Error("ERROR PARSING 2i BODY (isNeedProxyPassRiak)",
+				zap.String("url", getPathFromURL(r.URL)),
+				zap.String("body", string(body)),
+			)
 			return false
 		}
 		if len(keys) == 0 {
@@ -92,12 +95,19 @@ func storeSecondaryIndexeResponse(donor, target *endpoint.Instance, resp *http.R
 		return err
 	}
 
-	fmt.Println("GOT 2i KEYS:", len(keys), getPathFromURL(r.URL))
+	zap.L().Info("GOT 2i KEYS",
+		zap.Int("length", len(keys)),
+		zap.String("url", getPathFromURL(r.URL)),
+	)
+
 	for _, key := range keys {
 		var keyPath = "/riak/" + indexBucket + "/" + key
 		err = retrieveKey(donor, target, keyPath)
 		if err != nil {
-			fmt.Println("ERROR RETRIEVE KEY 2i", keyPath, err)
+			zap.L().Error("ERROR RETRIEVE KEY 2i",
+				zap.String("key", keyPath),
+				zap.String("error", err.Error()),
+			)
 		}
 	}
 
@@ -169,15 +179,22 @@ func storeResponse(target *endpoint.Instance, path string, headers http.Header, 
 	}
 
 	if (resp.StatusCode != http.StatusOK) && (resp.StatusCode != http.StatusNoContent) {
-		fmt.Println("store status:", resp.Status, respBody)
+		zap.L().Info("store status",
+			zap.String("status", resp.Status),
+			zap.String("body", string(respBody)),
+		)
 	} else {
-		fmt.Println("store status:", resp.Status)
+		zap.L().Info("store status",
+			zap.String("status", resp.Status),
+		)
 	}
 	return
 }
 
 func retrieveKey(donor, target *endpoint.Instance, keyPath string) (err error) {
-	fmt.Println("RETRIEVE KEY >>>>")
+	zap.L().Info("RETRIEVE KEY >>>>",
+		zap.String("key", keyPath),
+	)
 	resp, body, err := target.Get(keyPath)
 	if err != nil {
 		return errors.New("TARGET_GET_KEY")

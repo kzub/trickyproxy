@@ -6,4 +6,5 @@ target.conf
 certs
 trickyproxy
 noproxy.conf
+.idea
 

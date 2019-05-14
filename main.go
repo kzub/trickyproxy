@@ -4,7 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/kzub/trickyproxy/endpoint"
+	"github.com/tonymadbrain/trickyproxy/endpoint"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -16,7 +18,7 @@ import (
 type resultStatus int
 
 const (
-	version   string       = "2.2.1"
+	version   string       = "2.3.0"
 	servOk    resultStatus = iota
 	servFail  resultStatus = iota
 	servRetry resultStatus = iota
@@ -38,6 +40,40 @@ func main() {
 		return
 	}
 
+	encoderCfg := zapcore.EncoderConfig{
+		TimeKey:        "@timestamp",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		MessageKey:     "message",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
+	logConfig := zap.Config{
+		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
+		Development: false,
+		Sampling: &zap.SamplingConfig{
+			Initial:    100,
+			Thereafter: 100,
+		},
+		Encoding:         "json",
+		EncoderConfig:    encoderCfg,
+		OutputPaths:      []string{"stdout"},
+		ErrorOutputPaths: []string{"stdout"},
+	}
+
+	// logger, _ := zap.NewProduction()
+	logger, _ := logConfig.Build()
+	defer logger.Sync()
+
+	undo := zap.ReplaceGlobals(logger)
+	defer undo()
+
 	if *proxmod == "riak" {
 		setRiakProxyMode()
 	}
@@ -57,7 +93,10 @@ func readConfig(filename string, required bool) string {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		if required {
-			panic("ERR: CANNOT READ CONFIG FILE:" + filename)
+			zap.L().Error("cannot read config file",
+				zap.String("filename", filename),
+			)
+			os.Exit(1)
 		}
 		return ""
 	}
@@ -88,7 +127,10 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 		if len(data) > 2 {
 			auth = cleanString(data[2])
 		}
-		fmt.Println("adding donor upstream", host, port)
+		zap.L().Info("adding donor upstream",
+			zap.String("host", host),
+			zap.String("port", port),
+		)
 
 		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile)
 		ep.MakeReadOnly()
@@ -105,7 +147,11 @@ func setupTarget(targetConfig string) *endpoint.Instance {
 	if len(data) > 2 {
 		space = cleanString(data[2]) + "_"
 	}
-	fmt.Println("adding target upstream", host, port, space)
+	zap.L().Info("adding target upstream",
+		zap.String("host", host),
+		zap.String("port", port),
+		zap.String("space", space),
+	)
 	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space))
 }
 
@@ -123,7 +169,9 @@ type checkFunc func(rURL *url.URL) bool
 func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 	var exceptions []*regexp.Regexp
 	if len(pathListRawData) == 0 {
-		fmt.Println("No paths for: " + name)
+		zap.L().Info("no paths for",
+			zap.String("name", name),
+		)
 		return func(rURL *url.URL) bool {
 			return false
 		}
@@ -137,9 +185,16 @@ func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 		}
 		expr, err := regexp.Compile(v)
 		if err != nil {
-			panic("BAD RegExp in " + name + ", config:" + v)
+			zap.L().Error("bad regexp",
+				zap.String("name", name),
+				zap.String("config", v),
+			)
+			os.Exit(1)
 		}
-		fmt.Println("adding path " + name + ": " + v)
+		zap.L().Info("adding path",
+			zap.String("name", name),
+			zap.String("path", v),
+		)
 		exceptions = append(exceptions, expr)
 	}
 
@@ -147,7 +202,10 @@ func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 		path := rURL.String()
 		for _, v := range exceptions {
 			if v.MatchString(path) {
-				fmt.Println("skip donor request in case of "+name+":", v)
+				zap.L().Info("skip donor request in case of",
+					zap.String("name", name),
+					zap.String("path", v.String()),
+				)
 				return true
 			}
 		}
@@ -172,11 +230,15 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 
 func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths, serverAddr string) {
 	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths, stopListPaths))
-	fmt.Println("Ready on [" + serverAddr + "]")
+	zap.L().Info("server ready",
+		zap.String("address", serverAddr),
+	)
 	err := http.ListenAndServe(serverAddr, nil)
 	if err != nil {
-		fmt.Println("ERR:", err)
-		panic("CANNOT SETUP SERVER AT " + serverAddr)
+		zap.L().Error("cannot setup server",
+			zap.String("address", serverAddr),
+		)
+		os.Exit(1)
 	}
 }
 
@@ -192,7 +254,9 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 		return servOk
 	}
 
-	fmt.Println("FETCH donor:", r.URL.Host)
+	zap.L().Info("fetch donor",
+		zap.String("host", r.URL.Host),
+	)
 	resp, body, err = donor.Do(r)
 
 	if err != nil {
@@ -222,7 +286,10 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 }
 
 func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
-	fmt.Printf("ERR: %s (%s) <<< %s\n", msg, r.URL.String(), err)
+	zap.L().Error(msg,
+		zap.String("url", r.URL.String()),
+		zap.String("error", err.Error()),
+	)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }
@@ -230,9 +297,16 @@ func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err 
 func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
 	defer func() {
 		if resp.StatusCode >= 500 {
-			fmt.Println("CLI resp:", resp.Status, resp.Request.URL.String(), string(respBody))
+			zap.L().Info("cli response",
+				zap.String("status", resp.Status),
+				zap.String("url", resp.Request.URL.String()),
+				zap.String("body", string(respBody)),
+			)
 		} else {
-			fmt.Println("CLI resp:", resp.Status, resp.Request.URL.String())
+			zap.L().Info("cli response",
+				zap.String("status", resp.Status),
+				zap.String("url", resp.Request.URL.String()),
+			)
 		}
 	}()
 
