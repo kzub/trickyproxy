@@ -4,7 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/tonymadbrain/trickyproxy/endpoint"
+	"github.com/kzub/trickyproxy/endpoint"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io/ioutil"
