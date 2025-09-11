@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type resultStatus int
@@ -33,7 +34,7 @@ func main() {
 	excfile := flag.String("noproxy", "noproxy.conf", "request path exceptions list")
 	stopfile := flag.String("stoplist", "stoplist.conf", "requests stop list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
-	logformat := flag.String("logformat", "console", "change logformat to json")
+	logformat := flag.String("logformat", "json", "change logformat to console")
 	flag.Parse()
 
 	if len(os.Args) > 1 && os.Args[1] == "version" {
@@ -219,12 +220,13 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 	stopList := buildRegexpFromPath("stoplist", stopListPaths)
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		startTime := time.Now()
 		if stopList(r.URL) {
-			writeErrorResponse("URL_IN_STOP_LIST "+r.Method, r, w, errors.New("FORBIDDEN REQUEST"))
+			writeErrorResponse("URL_IN_STOP_LIST "+r.Method, r, w, errors.New("FORBIDDEN REQUEST"), time.Since(startTime))
 			return
 		}
 		for callCount, res := 3, servRetry; res == servRetry && callCount >= 0; callCount-- {
-			res = serveRequest(donors.Next(), target, w, r, exceptions, callCount)
+			res = serveRequest(donors.Next(), target, w, r, exceptions, callCount, startTime)
 		}
 	}
 }
@@ -243,15 +245,15 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 	}
 }
 
-func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc, callCount int) resultStatus {
+func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc, callCount int, startTime time.Time) resultStatus {
 	resp, body, err := target.Do(r)
 	if err != nil {
-		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err)
+		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err, time.Since(startTime))
 		return servFail
 	}
 
 	if !isNeedProxyPass(resp, r, body) || noProxyPass(r.URL) {
-		writeResponse(w, resp, body)
+		writeResponse(w, resp, body, time.Since(startTime))
 		return servOk
 	}
 
@@ -264,49 +266,52 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 		if callCount > 0 {
 			return servRetry
 		}
-		writeErrorResponse("DONOR_DO "+r.Method, r, w, err)
+		writeErrorResponse("DONOR_DO "+r.Method, r, w, err, time.Since(startTime))
 		return servFail
 	}
 
 	storeResult, err := postProcess(donor, target, resp, r, body)
 	if err != nil {
-		writeErrorResponse("POST_PROCESS", r, w, err)
+		writeErrorResponse("POST_PROCESS", r, w, err, time.Since(startTime))
 		return servFail
 	}
 
 	if storeResult {
 		err = storeResponse(target, r.URL.String(), resp.Header, body)
 		if err != nil {
-			writeErrorResponse("TARGET_STORE", r, w, err)
+			writeErrorResponse("TARGET_STORE", r, w, err, time.Since(startTime))
 			return servFail
 		}
 	}
 
-	writeResponse(w, resp, body)
+	writeResponse(w, resp, body, time.Since(startTime))
 	return servOk
 }
 
-func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error) {
+func writeErrorResponse(msg string, r *http.Request, w http.ResponseWriter, err error, responseTime time.Duration) {
 	zap.L().Error(msg,
 		zap.String("url", r.URL.String()),
 		zap.String("error", err.Error()),
+		zap.Int64("responseTime", responseTime.Milliseconds()),
 	)
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintln(w, msg)
 }
 
-func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte) {
+func writeResponse(w http.ResponseWriter, resp *http.Response, respBody []byte, responseTime time.Duration) {
 	defer func() {
 		if resp.StatusCode >= 500 {
 			zap.L().Info("cli response",
 				zap.String("status", resp.Status),
 				zap.String("url", resp.Request.URL.String()),
 				zap.String("body", string(respBody)),
+				zap.Int64("responseTime", responseTime.Milliseconds()),
 			)
 		} else {
 			zap.L().Info("cli response",
 				zap.String("status", resp.Status),
 				zap.String("url", resp.Request.URL.String()),
+				zap.Int64("responseTime", responseTime.Milliseconds()),
 			)
 		}
 	}()
