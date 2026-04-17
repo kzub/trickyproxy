@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/kzub/trickyproxy/endpoint"
+	"github.com/kzub/trickyproxy/negativecache"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io/ioutil"
@@ -35,6 +36,9 @@ func main() {
 	stopfile := flag.String("stoplist", "stoplist.conf", "requests stop list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
 	logformat := flag.String("logformat", "json", "change logformat to console")
+	donorTimeout := flag.Duration("donor-timeout", 4*time.Second, "Timeout for donor HTTP requests")
+	targetTimeout := flag.Duration("target-timeout", 4*time.Second, "Timeout for target HTTP requests")
+	negativeCacheTTL := flag.Duration("negative-cache-ttl", 10*time.Minute, "TTL for negative (404) response cache. Set to 0 to disable.")
 	flag.Parse()
 
 	if len(os.Args) > 1 && os.Args[1] == "version" {
@@ -76,6 +80,17 @@ func main() {
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
+	logger.Info("timeouts configured",
+		zap.Duration("donorTimeout", *donorTimeout),
+		zap.Duration("targetTimeout", *targetTimeout),
+	)
+
+	cache := negativecache.New(*negativeCacheTTL)
+	logger.Info("negative cache configured",
+		zap.Duration("ttl", *negativeCacheTTL),
+		zap.Bool("enabled", cache.Enabled()),
+	)
+
 	if *proxmod == "riak" {
 		setRiakProxyMode()
 	}
@@ -86,9 +101,9 @@ func main() {
 	exceptionsPaths := readConfig(*excfile, false)
 	stopListPaths := readConfig(*stopfile, false)
 
-	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
-	target := setupTarget(targetConfig)
-	setupServer(donors, target, exceptionsPaths, stopListPaths, serverConfig)
+	donors := setupDonors(donorsConfig, *keyfile, *crtfile, *donorTimeout)
+	target := setupTarget(targetConfig, *targetTimeout)
+	setupServer(donors, target, exceptionsPaths, stopListPaths, serverConfig, cache)
 }
 
 func readConfig(filename string, required bool) string {
@@ -106,7 +121,7 @@ func readConfig(filename string, required bool) string {
 	return cleanString(string(data[:]))
 }
 
-func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
+func setupDonors(donorsConfig, keyfile, crtfile string, timeout time.Duration) *endpoint.Instances {
 	donorsList := strings.Split(donorsConfig, "\n")
 	donors := endpoint.NewInstances()
 
@@ -134,14 +149,14 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 			zap.String("port", port),
 		)
 
-		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile)
+		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile, timeout)
 		ep.MakeReadOnly()
 		donors.Add(ep)
 	}
 	return donors
 }
 
-func setupTarget(targetConfig string) *endpoint.Instance {
+func setupTarget(targetConfig string, timeout time.Duration) *endpoint.Instance {
 	data := strings.Split(targetConfig, ":")
 	host := data[0]
 	port := cleanString(data[1])
@@ -154,7 +169,7 @@ func setupTarget(targetConfig string) *endpoint.Instance {
 		zap.String("port", port),
 		zap.String("space", space),
 	)
-	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space))
+	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space), timeout)
 }
 
 func cleanString(str string) string {
@@ -215,7 +230,7 @@ func buildRegexpFromPath(name, pathListRawData string) checkFunc {
 	}
 }
 
-func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths string) func(w http.ResponseWriter, r *http.Request) {
+func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths string, cache *negativecache.Cache) func(w http.ResponseWriter, r *http.Request) {
 	exceptions := buildRegexpFromPath("exceptions", exceptionsPaths)
 	stopList := buildRegexpFromPath("stoplist", stopListPaths)
 
@@ -226,13 +241,13 @@ func makeHandler(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 			return
 		}
 		for callCount, res := 3, servRetry; res == servRetry && callCount >= 0; callCount-- {
-			res = serveRequest(donors.Next(), target, w, r, exceptions, callCount, startTime)
+			res = serveRequest(donors.Next(), target, w, r, exceptions, callCount, startTime, cache)
 		}
 	}
 }
 
-func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths, serverAddr string) {
-	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths, stopListPaths))
+func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptionsPaths, stopListPaths, serverAddr string, cache *negativecache.Cache) {
+	http.HandleFunc("/", makeHandler(donors, target, exceptionsPaths, stopListPaths, cache))
 	zap.L().Info("server ready",
 		zap.String("address", serverAddr),
 	)
@@ -245,7 +260,7 @@ func setupServer(donors *endpoint.Instances, target *endpoint.Instance, exceptio
 	}
 }
 
-func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc, callCount int, startTime time.Time) resultStatus {
+func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.ResponseWriter, r *http.Request, noProxyPass checkFunc, callCount int, startTime time.Time, cache *negativecache.Cache) resultStatus {
 	resp, body, err := target.Do(r)
 	if err != nil {
 		writeErrorResponse("TARGET_DO_METHOD "+r.Method, r, w, err, time.Since(startTime))
@@ -254,6 +269,15 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 
 	if !isNeedProxyPass(resp, r, body) || noProxyPass(r.URL) {
 		writeResponse(w, resp, body, time.Since(startTime))
+		return servOk
+	}
+
+	// Check negative cache — skip donor if this key was recently a 404
+	if cache.Enabled() && !strings.Contains(r.URL.Path, "/index/") && cache.Get(r.URL.Path) {
+		zap.L().Info("negative cache hit",
+			zap.String("key", r.URL.Path),
+		)
+		w.WriteHeader(http.StatusNotFound)
 		return servOk
 	}
 
@@ -268,6 +292,11 @@ func serveRequest(donor *endpoint.Instance, target *endpoint.Instance, w http.Re
 		}
 		writeErrorResponse("DONOR_DO "+r.Method, r, w, err, time.Since(startTime))
 		return servFail
+	}
+
+	// Store 404 in negative cache so repeated requests skip the donor
+	if resp.StatusCode == http.StatusNotFound && cache.Enabled() && !strings.Contains(r.URL.Path, "/index/") {
+		cache.Set(r.URL.Path)
 	}
 
 	storeResult, err := postProcess(donor, target, resp, r, body)

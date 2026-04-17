@@ -128,7 +128,7 @@ Wraps an `http.Client` with endpoint-specific configuration:
 | `urlEncoder` | `URLModifier` | Rewrites outgoing URL paths |
 | `headerEncoder` | `HeaderModifier` | Rewrites outgoing request headers |
 | `headerDecoder` | `HeaderModifier` | Rewrites incoming response headers |
-| `client` | `*http.Client` | Configured HTTP client (4s timeout) |
+| `client` | `*http.Client` | Configured HTTP client (timeout set via `-donor-timeout` / `-target-timeout`) |
 
 **Key methods:**
 - `New(host, port, protocol, auth, urlEncoder, headerEncoder, headerDecoder)` — creates a plain HTTP instance
@@ -219,8 +219,51 @@ For GET requests to Riak 2i endpoints (`/buckets/*/index/*`):
 | `-stoplist` | `stoplist.conf` | Path to request blocklist regexes file (optional) |
 | `-mode` | `riak` | Proxy mode: `riak` or `http` |
 | `-logformat` | `json` | Log format: `json` or `console` |
+| `-donor-timeout` | `4s` | Timeout for HTTP requests to donor upstreams (e.g. `2s`, `500ms`, `1m`) |
+| `-target-timeout` | `4s` | Timeout for HTTP requests to the target upstream |
+| `-negative-cache-ttl` | `10m` | TTL for in-memory negative (404) cache for donor responses. Set to `0` to disable. Only GET/HEAD requests are cached; 2i paths (`/index/`) are never cached. |
 
 Special command: `trickyproxy version` prints the version and exits.
+
+### New Configuration Options
+
+#### Configurable Timeouts
+
+By default, both donor and target connections use a **4-second timeout**. Use the `-donor-timeout` and `-target-timeout` flags to override:
+
+```bash
+# Increase donor timeout for slow sandbox upstreams
+trickyproxy -donor-timeout 10s -target-timeout 2s ...
+
+# Sub-second precision
+trickyproxy -donor-timeout 500ms ...
+```
+
+Values use Go duration syntax: `300ms`, `2s`, `1m30s`.
+
+#### Negative 404 Cache
+
+When enabled (default TTL: **10 minutes**), trickyproxy caches 404 responses from donors in memory. This prevents repeated donor round-trips for keys that don't exist in any donor.
+
+**What is cached:**
+- GET and HEAD requests that return 404 from the donor
+- Only plain key paths (2i `/index/` paths are **never** cached)
+
+**What is NOT cached:**
+- POST, PUT, DELETE requests
+- 5xx responses or network errors
+- Riak secondary index (`/index/`) paths
+
+```bash
+# Default (10 minute TTL)
+trickyproxy -negative-cache-ttl 10m ...
+
+# Shorter TTL for volatile data
+trickyproxy -negative-cache-ttl 30s ...
+
+# Disable entirely
+trickyproxy -negative-cache-ttl 0 ...
+```
 
 ### Configuration Files
 
@@ -340,7 +383,7 @@ When an HTTP request to any upstream fails (network error, timeout, etc.):
 - **Retries:** Up to 10 attempts
 - **Delay:** 500ms between retries (fixed, no exponential backoff)
 - **Body buffering:** Request body is read into memory before the first attempt, allowing reuse across retries
-- **Timeout:** Each individual request has a 4-second timeout (`http.Client.Timeout`)
+- **Timeout:** Each individual request has a configurable timeout (default: **4s**), set via `-donor-timeout` or `-target-timeout` flags
 
 ### Level 2: Donor Rotation Retries (serveRequest)
 
@@ -553,6 +596,7 @@ No unit tests exist in the repository. Key areas that would benefit from test co
 - URL/header encoding and decoding
 - `getKeysFrom2iResponse` JSON parsing
 - `buildRegexpFromPath` regex compilation and matching
+- `negativecache.Cache` TTL expiry and concurrent access
 
 ---
 
