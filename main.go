@@ -35,6 +35,8 @@ func main() {
 	stopfile := flag.String("stoplist", "stoplist.conf", "requests stop list")
 	proxmod := flag.String("mode", "riak", "proxy mode: [http | riak]")
 	logformat := flag.String("logformat", "json", "change logformat to console")
+	donorTimeout := flag.Duration("donor-timeout", 4*time.Second, "Timeout for donor HTTP requests")
+	targetTimeout := flag.Duration("target-timeout", 4*time.Second, "Timeout for target HTTP requests")
 	flag.Parse()
 
 	if len(os.Args) > 1 && os.Args[1] == "version" {
@@ -76,6 +78,11 @@ func main() {
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
+	logger.Info("timeouts configured",
+		zap.Duration("donorTimeout", *donorTimeout),
+		zap.Duration("targetTimeout", *targetTimeout),
+	)
+
 	if *proxmod == "riak" {
 		setRiakProxyMode()
 	}
@@ -86,8 +93,8 @@ func main() {
 	exceptionsPaths := readConfig(*excfile, false)
 	stopListPaths := readConfig(*stopfile, false)
 
-	donors := setupDonors(donorsConfig, *keyfile, *crtfile)
-	target := setupTarget(targetConfig)
+	donors := setupDonors(donorsConfig, *keyfile, *crtfile, *donorTimeout)
+	target := setupTarget(targetConfig, *targetTimeout)
 	setupServer(donors, target, exceptionsPaths, stopListPaths, serverConfig)
 }
 
@@ -106,7 +113,7 @@ func readConfig(filename string, required bool) string {
 	return cleanString(string(data[:]))
 }
 
-func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
+func setupDonors(donorsConfig, keyfile, crtfile string, timeout time.Duration) *endpoint.Instances {
 	donorsList := strings.Split(donorsConfig, "\n")
 	donors := endpoint.NewInstances()
 
@@ -134,14 +141,14 @@ func setupDonors(donorsConfig, keyfile, crtfile string) *endpoint.Instances {
 			zap.String("port", port),
 		)
 
-		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile)
+		ep := endpoint.NewTLS(protocol, host, port, auth, keyfile, crtfile, timeout)
 		ep.MakeReadOnly()
 		donors.Add(ep)
 	}
 	return donors
 }
 
-func setupTarget(targetConfig string) *endpoint.Instance {
+func setupTarget(targetConfig string, timeout time.Duration) *endpoint.Instance {
 	data := strings.Split(targetConfig, ":")
 	host := data[0]
 	port := cleanString(data[1])
@@ -154,7 +161,7 @@ func setupTarget(targetConfig string) *endpoint.Instance {
 		zap.String("port", port),
 		zap.String("space", space),
 	)
-	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space))
+	return endpoint.New(host, port, "http", "", urlEncoder(space), headerEncoder(space), headerDecoder(space), timeout)
 }
 
 func cleanString(str string) string {

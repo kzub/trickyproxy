@@ -34,7 +34,7 @@ type Instance struct {
 }
 
 // New make new enfpoint
-func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncoder, headerDecoder HeaderModifier) *Instance {
+func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncoder, headerDecoder HeaderModifier, timeout time.Duration) *Instance {
 	if protocol != "http" && protocol != "https" {
 		log.Fatal("bad protocol", protocol)
 	}
@@ -49,7 +49,7 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 		headerEncoder: headerEncoder,
 		headerDecoder: headerDecoder,
 		client: &http.Client{
-			Timeout: time.Second * 4,
+			Timeout: timeout,
 			Transport: &http.Transport{
 				DisableCompression: true, // without this decompress plain data by default.
 			},
@@ -58,7 +58,7 @@ func New(host, port, protocol, auth string, urlEncoder URLModifier, headerEncode
 }
 
 // NewTLS make new tls Instance
-func NewTLS(protocol, host, port, auth, keyfile, crtfile string) *Instance {
+func NewTLS(protocol, host, port, auth, keyfile, crtfile string, timeout time.Duration) *Instance {
 	cert, err := tls.LoadX509KeyPair(crtfile, keyfile)
 	if err != nil {
 		zap.L().Error("no certificates loaded",
@@ -69,7 +69,7 @@ func NewTLS(protocol, host, port, auth, keyfile, crtfile string) *Instance {
 		Certificates:       []tls.Certificate{cert},
 		InsecureSkipVerify: true,
 	}
-	Instance := New(host, port, protocol, auth, nil, nil, nil)
+	Instance := New(host, port, protocol, auth, nil, nil, nil, timeout)
 	Instance.client.Transport = &http.Transport{
 		TLSClientConfig:    config,
 		DisableCompression: true,
